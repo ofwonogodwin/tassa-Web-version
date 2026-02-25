@@ -72,6 +72,8 @@ class AlertResponse(BaseModel):
     alert_type: str
     timestamp: datetime
     rider_name: Optional[str] = None
+    plate_number: Optional[str] = None
+    location_name: Optional[str] = None  # Human-readable place name
 
     class Config:
         from_attributes = True

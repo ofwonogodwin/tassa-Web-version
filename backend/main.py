@@ -12,6 +12,7 @@ from models import Rider, Alert
 import crud
 import schemas
 from anomaly import check_for_anomaly
+from geocoding import get_place_name
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -127,10 +128,11 @@ def get_alerts(db: Session = Depends(get_db)):
     """
     alerts = crud.get_all_alerts(db)
     
-    # Add rider name to each alert
+    # Add rider name, plate number, and location name to each alert
     result = []
     for alert in alerts:
         rider = crud.get_rider_by_id(db, alert.rider_id)
+        place_name = get_place_name(alert.latitude, alert.longitude)
         alert_data = schemas.AlertResponse(
             id=alert.id,
             rider_id=alert.rider_id,
@@ -138,7 +140,9 @@ def get_alerts(db: Session = Depends(get_db)):
             longitude=alert.longitude,
             alert_type=alert.alert_type,
             timestamp=alert.timestamp,
-            rider_name=rider.name if rider else "Unknown"
+            rider_name=rider.name if rider else "Unknown",
+            plate_number=rider.plate_number if rider else "Unknown",
+            location_name=place_name
         )
         result.append(alert_data)
     
@@ -181,6 +185,7 @@ def get_rider_alerts(rider_id: int, db: Session = Depends(get_db)):
     
     result = []
     for alert in alerts:
+        place_name = get_place_name(alert.latitude, alert.longitude)
         alert_data = schemas.AlertResponse(
             id=alert.id,
             rider_id=alert.rider_id,
@@ -188,7 +193,8 @@ def get_rider_alerts(rider_id: int, db: Session = Depends(get_db)):
             longitude=alert.longitude,
             alert_type=alert.alert_type,
             timestamp=alert.timestamp,
-            rider_name=rider.name
+            rider_name=rider.name,
+            location_name=place_name
         )
         result.append(alert_data)
     
