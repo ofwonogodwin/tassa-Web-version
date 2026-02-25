@@ -56,6 +56,7 @@ function AlertTable({ alerts, showRiderName = false }) {
                             </TableCell>
                             <TableCell>
                                 {alert.latitude.toFixed(4)}, {alert.longitude.toFixed(4)}
+                                {alert.location_name && `, ${alert.location_name}`}
                             </TableCell>
                             <TableCell>{formatDate(alert.timestamp)}</TableCell>
                         </TableRow>
