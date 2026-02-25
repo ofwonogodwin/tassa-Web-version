@@ -37,6 +37,7 @@ function AlertTable({ alerts, showRiderName = false }) {
                     <TableRow>
                         <TableCell>ID</TableCell>
                         {showRiderName && <TableCell>Rider</TableCell>}
+                        {showRiderName && <TableCell>Plate No.</TableCell>}
                         <TableCell>Type</TableCell>
                         <TableCell>Location</TableCell>
                         <TableCell>Timestamp</TableCell>
@@ -47,6 +48,7 @@ function AlertTable({ alerts, showRiderName = false }) {
                         <TableRow key={alert.id}>
                             <TableCell>{alert.id}</TableCell>
                             {showRiderName && <TableCell>{alert.rider_name}</TableCell>}
+                            {showRiderName && <TableCell>{alert.plate_number}</TableCell>}
                             <TableCell>
                                 <Chip
                                     label={alert.alert_type}
