@@ -120,13 +120,11 @@ function RiderDashboard({ rider }) {
         setMessage({ type: '', text: '' })
 
         try {
-            let position = currentLocation
+            // Always get fresh location for SOS
+            const position = await getCurrentPosition()
+            setCurrentLocation(position)
 
-            // Get current position if not available
-            if (!position) {
-                position = await getCurrentPosition()
-                setCurrentLocation(position)
-            }
+            console.log('SOS Location:', position) // Debug log
 
             await sendSOS({
                 rider_id: rider.id,
@@ -134,10 +132,17 @@ function RiderDashboard({ rider }) {
                 longitude: position.longitude,
             })
 
-            setMessage({ type: 'success', text: 'SOS alert sent successfully!' })
+            setMessage({
+                type: 'success',
+                text: `SOS sent! Location: ${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`
+            })
             fetchAlerts() // Refresh alerts
         } catch (err) {
-            setMessage({ type: 'error', text: 'Failed to send SOS. Please try again.' })
+            console.error('SOS Error:', err)
+            setMessage({
+                type: 'error',
+                text: 'Failed to get your location. Please enable location access and try again.'
+            })
         } finally {
             setSosLoading(false)
         }
