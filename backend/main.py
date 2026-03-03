@@ -142,14 +142,31 @@ def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
     )
 
 
-# Get all alerts endpoint
+# Get all alerts endpoint (Police Dashboard)
 @app.get("/alerts", response_model=list[schemas.AlertResponse])
-def get_alerts(db: Session = Depends(get_db)):
+def get_alerts(
+    status: Optional[str] = Query(None, description="Filter by status: RIDER_PENDING, ESCALATED, RESOLVED"),
+    escalated_only: bool = Query(False, description="Only show escalated alerts"),
+    db: Session = Depends(get_db)
+):
     """
     Get all alerts for police dashboard.
-    Includes rider name for each alert.
+    
+    Community Policing: By default shows ESCALATED alerts.
+    Set escalated_only=false to see all alerts.
+    Auto-escalates pending alerts that have exceeded the time limit.
     """
-    alerts = crud.get_all_alerts(db)
+    # First, auto-escalate any old pending alerts
+    crud.auto_escalate_old_alerts(db)
+    
+    # Get alerts based on filter
+    if escalated_only:
+        alerts = crud.get_escalated_alerts(db)
+    elif status:
+        alerts = crud.get_all_alerts(db)
+        alerts = [a for a in alerts if a.status == status]
+    else:
+        alerts = crud.get_all_alerts(db)
     
     # Add rider name, plate number, and location name to each alert
     result = []
@@ -165,7 +182,12 @@ def get_alerts(db: Session = Depends(get_db)):
             timestamp=alert.timestamp,
             rider_name=rider.name if rider else "Unknown",
             plate_number=rider.plate_number if rider else "Unknown",
-            location_name=place_name
+            location_name=place_name,
+            status=alert.status,
+            response_count=alert.response_count,
+            escalated_at=alert.escalated_at,
+            resolved_at=alert.resolved_at,
+            time_until_escalation=crud.get_time_until_escalation(alert)
         )
         result.append(alert_data)
     
@@ -217,11 +239,187 @@ def get_rider_alerts(rider_id: int, db: Session = Depends(get_db)):
             alert_type=alert.alert_type,
             timestamp=alert.timestamp,
             rider_name=rider.name,
-            location_name=place_name
+            plate_number=rider.plate_number,
+            location_name=place_name,
+            status=alert.status,
+            response_count=alert.response_count,
+            escalated_at=alert.escalated_at,
+            resolved_at=alert.resolved_at,
+            time_until_escalation=crud.get_time_until_escalation(alert)
         )
         result.append(alert_data)
     
     return result
+
+
+# ============== Community Policing Endpoints ==============
+
+@app.get("/community-alerts", response_model=list[schemas.AlertResponse])
+def get_community_alerts(
+    rider_id: int = Query(..., description="Current rider's ID (to exclude their own alerts)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Get alerts from fellow riders that need community response.
+    
+    Community Policing: Fellow riders are the first point of contact.
+    Returns only RIDER_PENDING alerts from other riders.
+    """
+    # First, auto-escalate any old pending alerts
+    crud.auto_escalate_old_alerts(db)
+    
+    # Get community alerts (excludes the requesting rider's own alerts)
+    alerts = crud.get_community_alerts(db, exclude_rider_id=rider_id)
+    
+    result = []
+    for alert in alerts:
+        rider = crud.get_rider_by_id(db, alert.rider_id)
+        place_name = get_place_name(alert.latitude, alert.longitude)
+        alert_data = schemas.AlertResponse(
+            id=alert.id,
+            rider_id=alert.rider_id,
+            latitude=alert.latitude,
+            longitude=alert.longitude,
+            alert_type=alert.alert_type,
+            timestamp=alert.timestamp,
+            rider_name=rider.name if rider else "Unknown",
+            plate_number=rider.plate_number if rider else "Unknown",
+            location_name=place_name,
+            status=alert.status,
+            response_count=alert.response_count,
+            escalated_at=alert.escalated_at,
+            resolved_at=alert.resolved_at,
+            time_until_escalation=crud.get_time_until_escalation(alert)
+        )
+        result.append(alert_data)
+    
+    return result
+
+
+@app.post("/alerts/{alert_id}/respond", response_model=schemas.AlertResponse)
+def respond_to_alert(
+    alert_id: int, 
+    request: schemas.AlertRespondRequest, 
+    db: Session = Depends(get_db)
+):
+    """
+    Record that a fellow rider is responding to an alert.
+    
+    Community Policing: When riders respond, it shows community engagement
+    and may prevent auto-escalation to police.
+    """
+    # Verify responder exists
+    responder = crud.get_rider_by_id(db, request.responder_id)
+    if not responder:
+        raise HTTPException(status_code=404, detail="Responder rider not found")
+    
+    alert = crud.respond_to_alert(db, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found or already escalated")
+    
+    rider = crud.get_rider_by_id(db, alert.rider_id)
+    place_name = get_place_name(alert.latitude, alert.longitude)
+    
+    return schemas.AlertResponse(
+        id=alert.id,
+        rider_id=alert.rider_id,
+        latitude=alert.latitude,
+        longitude=alert.longitude,
+        alert_type=alert.alert_type,
+        timestamp=alert.timestamp,
+        rider_name=rider.name if rider else "Unknown",
+        plate_number=rider.plate_number if rider else "Unknown",
+        location_name=place_name,
+        status=alert.status,
+        response_count=alert.response_count,
+        escalated_at=alert.escalated_at,
+        resolved_at=alert.resolved_at,
+        time_until_escalation=crud.get_time_until_escalation(alert)
+    )
+
+
+@app.post("/alerts/{alert_id}/escalate", response_model=schemas.AlertResponse)
+def escalate_alert(
+    alert_id: int, 
+    request: schemas.AlertEscalateRequest, 
+    db: Session = Depends(get_db)
+):
+    """
+    Manually escalate an alert to police.
+    
+    Community Policing: Riders can escalate if they determine 
+    the situation requires police involvement.
+    """
+    # Verify escalator exists
+    escalator = crud.get_rider_by_id(db, request.escalator_id)
+    if not escalator:
+        raise HTTPException(status_code=404, detail="Escalator rider not found")
+    
+    alert = crud.escalate_alert(db, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found or already escalated")
+    
+    rider = crud.get_rider_by_id(db, alert.rider_id)
+    place_name = get_place_name(alert.latitude, alert.longitude)
+    
+    return schemas.AlertResponse(
+        id=alert.id,
+        rider_id=alert.rider_id,
+        latitude=alert.latitude,
+        longitude=alert.longitude,
+        alert_type=alert.alert_type,
+        timestamp=alert.timestamp,
+        rider_name=rider.name if rider else "Unknown",
+        plate_number=rider.plate_number if rider else "Unknown",
+        location_name=place_name,
+        status=alert.status,
+        response_count=alert.response_count,
+        escalated_at=alert.escalated_at,
+        resolved_at=alert.resolved_at,
+        time_until_escalation=crud.get_time_until_escalation(alert)
+    )
+
+
+@app.post("/alerts/{alert_id}/resolve", response_model=schemas.AlertResponse)
+def resolve_alert(
+    alert_id: int, 
+    request: schemas.AlertResolveRequest, 
+    db: Session = Depends(get_db)
+):
+    """
+    Mark an alert as resolved.
+    
+    Community Policing: Can be resolved by fellow riders 
+    after they've helped the person in need.
+    """
+    # Verify resolver exists
+    resolver = crud.get_rider_by_id(db, request.resolver_id)
+    if not resolver:
+        raise HTTPException(status_code=404, detail="Resolver rider not found")
+    
+    alert = crud.resolve_alert(db, alert_id)
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+    
+    rider = crud.get_rider_by_id(db, alert.rider_id)
+    place_name = get_place_name(alert.latitude, alert.longitude)
+    
+    return schemas.AlertResponse(
+        id=alert.id,
+        rider_id=alert.rider_id,
+        latitude=alert.latitude,
+        longitude=alert.longitude,
+        alert_type=alert.alert_type,
+        timestamp=alert.timestamp,
+        rider_name=rider.name if rider else "Unknown",
+        plate_number=rider.plate_number if rider else "Unknown",
+        location_name=place_name,
+        status=alert.status,
+        response_count=alert.response_count,
+        escalated_at=alert.escalated_at,
+        resolved_at=alert.resolved_at,
+        time_until_escalation=-1  # Resolved
+    )
 
 
 if __name__ == "__main__":

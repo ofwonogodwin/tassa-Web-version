@@ -59,4 +59,38 @@ export const getRiderAlerts = async (riderId) => {
     return response.data
 }
 
+// ============== Community Policing API Functions ==============
+
+// Get community alerts (alerts from fellow riders)
+export const getCommunityAlerts = async (riderId) => {
+    const response = await api.get(`/community-alerts?rider_id=${riderId}`)
+    return response.data
+}
+
+// Respond to a community alert (fellow rider is helping)
+export const respondToAlert = async (alertId, responderId) => {
+    const response = await api.post(`/alerts/${alertId}/respond`, {
+        responder_id: responderId
+    })
+    return response.data
+}
+
+// Escalate an alert to police
+export const escalateAlert = async (alertId, escalatorId, reason = null) => {
+    const response = await api.post(`/alerts/${alertId}/escalate`, {
+        escalator_id: escalatorId,
+        reason: reason
+    })
+    return response.data
+}
+
+// Resolve an alert
+export const resolveAlert = async (alertId, resolverId, notes = null) => {
+    const response = await api.post(`/alerts/${alertId}/resolve`, {
+        resolver_id: resolverId,
+        resolution_notes: notes
+    })
+    return response.data
+}
+
 export default api

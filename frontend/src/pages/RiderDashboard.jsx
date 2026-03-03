@@ -9,10 +9,18 @@ import {
     Box,
     Alert,
     Chip,
+    Badge,
+    IconButton,
+    Tooltip,
+    LinearProgress,
 } from '@mui/material'
 import LocationOnIcon from '@mui/icons-material/LocationOn'
 import WarningIcon from '@mui/icons-material/Warning'
-import { sendLocation, sendSOS, getRiderAlerts } from '../api/api'
+import GroupIcon from '@mui/icons-material/Group'
+import LocalPoliceIcon from '@mui/icons-material/LocalPolice'
+import CheckCircleIcon from '@mui/icons-material/CheckCircle'
+import HandshakeIcon from '@mui/icons-material/Handshake'
+import { sendLocation, sendSOS, getRiderAlerts, getCommunityAlerts, respondToAlert, escalateAlert, resolveAlert } from '../api/api'
 import MapView from '../components/MapView'
 import AlertTable from '../components/AlertTable'
 
@@ -20,13 +28,26 @@ function RiderDashboard({ rider }) {
     const [tracking, setTracking] = useState(false)
     const [currentLocation, setCurrentLocation] = useState(null)
     const [alerts, setAlerts] = useState([])
+    const [communityAlerts, setCommunityAlerts] = useState([])
     const [message, setMessage] = useState({ type: '', text: '' })
     const [sosLoading, setSosLoading] = useState(false)
+    const [respondingTo, setRespondingTo] = useState(null)
     const intervalRef = useRef(null)
+    const communityIntervalRef = useRef(null)
 
     // Fetch rider alerts on mount
     useEffect(() => {
         fetchAlerts()
+        fetchCommunityAlerts()
+
+        // Auto-refresh community alerts every 15 seconds (faster than police)
+        communityIntervalRef.current = setInterval(fetchCommunityAlerts, 15000)
+
+        return () => {
+            if (communityIntervalRef.current) {
+                clearInterval(communityIntervalRef.current)
+            }
+        }
     }, [rider.id])
 
     // Cleanup interval on unmount
@@ -45,6 +66,56 @@ function RiderDashboard({ rider }) {
             setAlerts(data)
         } catch (err) {
             console.error('Failed to fetch alerts:', err)
+        }
+    }
+
+    // Fetch community alerts (fellow riders in need)
+    const fetchCommunityAlerts = async () => {
+        try {
+            const data = await getCommunityAlerts(rider.id)
+            setCommunityAlerts(data)
+        } catch (err) {
+            console.error('Failed to fetch community alerts:', err)
+        }
+    }
+
+    // Handle responding to a community alert
+    const handleRespondToAlert = async (alertId) => {
+        setRespondingTo(alertId)
+        try {
+            await respondToAlert(alertId, rider.id)
+            setMessage({ type: 'success', text: 'You are now responding to this alert! Fellow rider has been notified.' })
+            fetchCommunityAlerts()
+        } catch (err) {
+            console.error('Failed to respond to alert:', err)
+            setMessage({ type: 'error', text: 'Failed to respond to alert' })
+        } finally {
+            setRespondingTo(null)
+        }
+    }
+
+    // Handle escalating an alert to police
+    const handleEscalateAlert = async (alertId) => {
+        try {
+            await escalateAlert(alertId, rider.id)
+            setMessage({ type: 'warning', text: 'Alert escalated to police!' })
+            fetchCommunityAlerts()
+        } catch (err) {
+            console.error('Failed to escalate alert:', err)
+            setMessage({ type: 'error', text: 'Failed to escalate alert' })
+        }
+    }
+
+    // Handle resolving an alert
+    const handleResolveAlert = async (alertId) => {
+        try {
+            await resolveAlert(alertId, rider.id)
+            setMessage({ type: 'success', text: 'Alert marked as resolved!' })
+            fetchCommunityAlerts()
+            fetchAlerts()
+        } catch (err) {
+            console.error('Failed to resolve alert:', err)
+            setMessage({ type: 'error', text: 'Failed to resolve alert' })
         }
     }
 
@@ -169,6 +240,15 @@ function RiderDashboard({ rider }) {
                                     label={tracking ? 'Tracking Active' : 'Tracking Off'}
                                     color={tracking ? 'success' : 'default'}
                                 />
+                                {communityAlerts.length > 0 && (
+                                    <Badge badgeContent={communityAlerts.length} color="error">
+                                        <Chip
+                                            icon={<GroupIcon />}
+                                            label="Community Alerts"
+                                            color="warning"
+                                        />
+                                    </Badge>
+                                )}
                             </Box>
                         </Grid>
                     </Grid>
@@ -180,6 +260,113 @@ function RiderDashboard({ rider }) {
                 <Alert severity={message.type} sx={{ mb: 3 }} onClose={() => setMessage({ type: '', text: '' })}>
                     {message.text}
                 </Alert>
+            )}
+
+            {/* Community Alerts Section - Fellow Riders First! */}
+            {communityAlerts.length > 0 && (
+                <Card sx={{ mb: 3, border: 2, borderColor: 'warning.main', bgcolor: 'warning.light' }}>
+                    <CardContent>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
+                            <GroupIcon color="warning" />
+                            <Typography variant="h6" color="warning.dark">
+                                Fellow Riders Need Help! ({communityAlerts.length})
+                            </Typography>
+                        </Box>
+                        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                            As a community, we help each other first. Respond to let them know help is on the way!
+                        </Typography>
+                        
+                        {communityAlerts.map((alert) => (
+                            <Card key={alert.id} sx={{ mb: 2, bgcolor: 'background.paper' }}>
+                                <CardContent>
+                                    <Grid container spacing={2} alignItems="center">
+                                        <Grid item xs={12} md={6}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                                <Chip 
+                                                    label={alert.alert_type} 
+                                                    color={alert.alert_type === 'SOS' ? 'error' : 'warning'} 
+                                                    size="small" 
+                                                />
+                                                {alert.response_count > 0 && (
+                                                    <Chip 
+                                                        icon={<HandshakeIcon />}
+                                                        label={`${alert.response_count} responding`} 
+                                                        color="success" 
+                                                        size="small" 
+                                                    />
+                                                )}
+                                            </Box>
+                                            <Typography variant="subtitle1" fontWeight="bold">
+                                                {alert.rider_name} ({alert.plate_number})
+                                            </Typography>
+                                            <Typography variant="body2" color="text.secondary">
+                                                {alert.location_name || `${alert.latitude.toFixed(4)}, ${alert.longitude.toFixed(4)}`}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                                {new Date(alert.timestamp).toLocaleString()}
+                                            </Typography>
+                                            
+                                            {/* Time until auto-escalation */}
+                                            {alert.time_until_escalation > 0 && (
+                                                <Box sx={{ mt: 1 }}>
+                                                    <Typography variant="caption" color="text.secondary">
+                                                        Auto-escalates to police in {Math.floor(alert.time_until_escalation / 60)}:{String(alert.time_until_escalation % 60).padStart(2, '0')}
+                                                    </Typography>
+                                                    <LinearProgress 
+                                                        variant="determinate" 
+                                                        value={(1 - alert.time_until_escalation / 180) * 100} 
+                                                        color="warning"
+                                                        sx={{ mt: 0.5 }}
+                                                    />
+                                                </Box>
+                                            )}
+                                        </Grid>
+                                        <Grid item xs={12} md={6}>
+                                            <Box sx={{ display: 'flex', gap: 1, justifyContent: { md: 'flex-end' }, flexWrap: 'wrap' }}>
+                                                <Tooltip title="Click to let them know you're on your way!">
+                                                    <Button
+                                                        variant="contained"
+                                                        color="success"
+                                                        size="small"
+                                                        startIcon={<HandshakeIcon />}
+                                                        onClick={() => handleRespondToAlert(alert.id)}
+                                                        disabled={respondingTo === alert.id}
+                                                    >
+                                                        {respondingTo === alert.id ? 'Responding...' : 'I\'m Responding'}
+                                                    </Button>
+                                                </Tooltip>
+                                                <Tooltip title="Escalate to police immediately">
+                                                    <Button
+                                                        variant="outlined"
+                                                        color="error"
+                                                        size="small"
+                                                        startIcon={<LocalPoliceIcon />}
+                                                        onClick={() => handleEscalateAlert(alert.id)}
+                                                    >
+                                                        Escalate to Police
+                                                    </Button>
+                                                </Tooltip>
+                                                {alert.response_count > 0 && (
+                                                    <Tooltip title="Mark as resolved after helping">
+                                                        <Button
+                                                            variant="outlined"
+                                                            color="success"
+                                                            size="small"
+                                                            startIcon={<CheckCircleIcon />}
+                                                            onClick={() => handleResolveAlert(alert.id)}
+                                                        >
+                                                            Resolved
+                                                        </Button>
+                                                    </Tooltip>
+                                                )}
+                                            </Box>
+                                        </Grid>
+                                    </Grid>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </CardContent>
+                </Card>
             )}
 
             {/* Controls */}
@@ -194,11 +381,22 @@ function RiderDashboard({ rider }) {
                             <Box sx={{ height: 400 }}>
                                 <MapView
                                     center={currentLocation ? [currentLocation.latitude, currentLocation.longitude] : null}
-                                    markers={currentLocation ? [{
-                                        lat: currentLocation.latitude,
-                                        lng: currentLocation.longitude,
-                                        popup: 'Your current location'
-                                    }] : []}
+                                    markers={[
+                                        // Your location
+                                        ...(currentLocation ? [{
+                                            lat: currentLocation.latitude,
+                                            lng: currentLocation.longitude,
+                                            popup: 'Your current location',
+                                            type: 'YOU'
+                                        }] : []),
+                                        // Community alerts on map
+                                        ...communityAlerts.map(alert => ({
+                                            lat: alert.latitude,
+                                            lng: alert.longitude,
+                                            popup: `${alert.alert_type} - ${alert.rider_name}`,
+                                            type: alert.alert_type
+                                        }))
+                                    ]}
                                 />
                             </Box>
                         </CardContent>
