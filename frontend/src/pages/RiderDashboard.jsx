@@ -127,7 +127,7 @@ function RiderDashboard({ rider }) {
                 reject(new Error('Geolocation not supported'))
                 return
             }
-            
+
             // Try high accuracy first, fallback to low accuracy
             const tryGetPosition = (highAccuracy) => {
                 navigator.geolocation.getCurrentPosition(
@@ -147,14 +147,14 @@ function RiderDashboard({ rider }) {
                             reject(error)
                         }
                     },
-                    { 
+                    {
                         enableHighAccuracy: highAccuracy,
                         timeout: highAccuracy ? 10000 : 20000,
                         maximumAge: 60000  // Accept cached position up to 1 minute old
                     }
                 )
             }
-            
+
             tryGetPosition(true)
         })
     }
@@ -179,7 +179,7 @@ function RiderDashboard({ rider }) {
         try {
             const position = await getCurrentPosition()
             setCurrentLocation(position)
-            
+
             // Fetch place name in background
             fetchPlaceName(position.latitude, position.longitude)
 
@@ -230,7 +230,7 @@ function RiderDashboard({ rider }) {
             // Always get fresh location for SOS
             const position = await getCurrentPosition()
             setCurrentLocation(position)
-            
+
             // Fetch place name and wait for it
             let placeName = ''
             try {
@@ -249,10 +249,10 @@ function RiderDashboard({ rider }) {
                 longitude: position.longitude,
             })
 
-            const locationText = placeName 
+            const locationText = placeName
                 ? `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)} (${placeName})`
                 : `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`
-            
+
             setMessage({
                 type: 'success',
                 text: `SOS sent! Location: ${locationText}`
