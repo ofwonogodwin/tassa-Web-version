@@ -162,8 +162,12 @@ function RiderDashboard({ rider }) {
     // Fetch place name for coordinates
     const fetchPlaceName = async (lat, lng) => {
         try {
+            console.log('Fetching place name for:', lat, lng)
             const result = await getPlaceName(lat, lng)
-            setCurrentPlaceName(result.place_name || '')
+            console.log('Place name result:', result)
+            if (result && result.place_name) {
+                setCurrentPlaceName(result.place_name)
+            }
         } catch (err) {
             console.error('Failed to get place name:', err)
             setCurrentPlaceName('')
@@ -227,10 +231,17 @@ function RiderDashboard({ rider }) {
             const position = await getCurrentPosition()
             setCurrentLocation(position)
             
-            // Fetch place name
-            fetchPlaceName(position.latitude, position.longitude)
+            // Fetch place name and wait for it
+            let placeName = ''
+            try {
+                const geoResult = await getPlaceName(position.latitude, position.longitude)
+                placeName = geoResult.place_name || ''
+                setCurrentPlaceName(placeName)
+            } catch (geoErr) {
+                console.error('Geocoding failed:', geoErr)
+            }
 
-            console.log('SOS Location:', position) // Debug log
+            console.log('SOS Location:', position, 'Place:', placeName) // Debug log
 
             await sendSOS({
                 rider_id: rider.id,
@@ -238,9 +249,13 @@ function RiderDashboard({ rider }) {
                 longitude: position.longitude,
             })
 
+            const locationText = placeName 
+                ? `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)} (${placeName})`
+                : `${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`
+            
             setMessage({
                 type: 'success',
-                text: `SOS sent! Location: ${position.latitude.toFixed(4)}, ${position.longitude.toFixed(4)}`
+                text: `SOS sent! Location: ${locationText}`
             })
             fetchAlerts() // Refresh alerts
         } catch (err) {
@@ -517,12 +532,13 @@ function RiderDashboard({ rider }) {
                                 <Typography variant="h6" gutterBottom>
                                     Current Location
                                 </Typography>
-                                <Typography variant="body1" fontWeight="bold" color="primary">
+                                {currentPlaceName && (
+                                    <Typography variant="h5" fontWeight="bold" color="primary" gutterBottom>
+                                        {currentPlaceName}
+                                    </Typography>
+                                )}
+                                <Typography variant="body2" color="text.secondary">
                                     {currentLocation.latitude.toFixed(4)}, {currentLocation.longitude.toFixed(4)}
-                                    {currentPlaceName && `, ${currentPlaceName}`}
-                                </Typography>
-                                <Typography variant="caption" color="text.secondary">
-                                    Lat: {currentLocation.latitude.toFixed(6)} | Lng: {currentLocation.longitude.toFixed(6)}
                                 </Typography>
                             </CardContent>
                         </Card>
