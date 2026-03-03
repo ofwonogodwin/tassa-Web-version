@@ -8,8 +8,13 @@ import {
     Box,
     Button,
     Chip,
+    ToggleButton,
+    ToggleButtonGroup,
+    Alert,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
+import LocalPoliceIcon from '@mui/icons-material/LocalPolice'
+import GroupIcon from '@mui/icons-material/Group'
 import { getAlerts } from '../api/api'
 import MapView from '../components/MapView'
 import AlertTable from '../components/AlertTable'
@@ -18,6 +23,7 @@ function PoliceDashboard() {
     const [alerts, setAlerts] = useState([])
     const [loading, setLoading] = useState(true)
     const [lastUpdate, setLastUpdate] = useState(null)
+    const [viewMode, setViewMode] = useState('escalated') // 'escalated', 'all', 'pending'
 
     // Fetch alerts on mount
     useEffect(() => {
@@ -41,17 +47,26 @@ function PoliceDashboard() {
         }
     }
 
+    // Filter alerts based on view mode
+    const filteredAlerts = alerts.filter(alert => {
+        if (viewMode === 'escalated') return alert.status === 'ESCALATED'
+        if (viewMode === 'pending') return alert.status === 'RIDER_PENDING'
+        return true // 'all'
+    })
+
     // Convert alerts to map markers
-    const markers = alerts.map((alert) => ({
+    const markers = filteredAlerts.map((alert) => ({
         lat: alert.latitude,
         lng: alert.longitude,
-        popup: `${alert.alert_type} - ${alert.rider_name}`,
+        popup: `${alert.alert_type} - ${alert.rider_name} (${alert.status})`,
         type: alert.alert_type,
     }))
 
-    // Count alerts by type
-    const sosCount = alerts.filter((a) => a.alert_type === 'SOS').length
-    const anomalyCount = alerts.filter((a) => a.alert_type === 'ANOMALY').length
+    // Count alerts by type and status
+    const sosCount = filteredAlerts.filter((a) => a.alert_type === 'SOS').length
+    const anomalyCount = filteredAlerts.filter((a) => a.alert_type === 'ANOMALY').length
+    const escalatedCount = alerts.filter((a) => a.status === 'ESCALATED').length
+    const pendingCount = alerts.filter((a) => a.status === 'RIDER_PENDING').length
 
     return (
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
@@ -77,16 +92,45 @@ function PoliceDashboard() {
                 </Box>
             </Box>
 
+            {/* Community Policing Info */}
+            <Alert severity="info" sx={{ mb: 3 }} icon={<GroupIcon />}>
+                <strong>Community Policing Active:</strong> Alerts go to fellow riders first. 
+                You see alerts after they've been escalated (no rider response within 3 minutes) 
+                or manually escalated by a rider.
+            </Alert>
+
+            {/* View Mode Toggle */}
+            <Box sx={{ mb: 3, display: 'flex', justifyContent: 'center' }}>
+                <ToggleButtonGroup
+                    value={viewMode}
+                    exclusive
+                    onChange={(e, newMode) => newMode && setViewMode(newMode)}
+                    aria-label="alert view mode"
+                >
+                    <ToggleButton value="escalated" aria-label="escalated alerts">
+                        <LocalPoliceIcon sx={{ mr: 1 }} />
+                        Escalated ({escalatedCount})
+                    </ToggleButton>
+                    <ToggleButton value="pending" aria-label="pending alerts">
+                        <GroupIcon sx={{ mr: 1 }} />
+                        Rider Pending ({pendingCount})
+                    </ToggleButton>
+                    <ToggleButton value="all" aria-label="all alerts">
+                        All ({alerts.length})
+                    </ToggleButton>
+                </ToggleButtonGroup>
+            </Box>
+
             {/* Stats */}
             <Grid container spacing={3} sx={{ mb: 3 }}>
                 <Grid item xs={12} sm={4}>
                     <Card>
                         <CardContent>
                             <Typography variant="h6" color="text.secondary">
-                                Total Alerts
+                                {viewMode === 'escalated' ? 'Escalated Alerts' : viewMode === 'pending' ? 'Pending Alerts' : 'Total Alerts'}
                             </Typography>
                             <Typography variant="h3">
-                                {alerts.length}
+                                {filteredAlerts.length}
                             </Typography>
                         </CardContent>
                     </Card>
@@ -144,7 +188,7 @@ function PoliceDashboard() {
                             <Typography variant="h6" gutterBottom>
                                 Alert History
                             </Typography>
-                            <AlertTable alerts={alerts} showRiderName={true} />
+                            <AlertTable alerts={filteredAlerts} showRiderName={true} showStatus={true} />
                         </CardContent>
                     </Card>
                 </Grid>

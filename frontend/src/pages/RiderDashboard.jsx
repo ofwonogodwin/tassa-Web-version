@@ -458,7 +458,8 @@ function RiderDashboard({ rider }) {
                             </Button>
 
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
-                                Press SOS in case of emergency. Your location will be sent to authorities.
+                                Press SOS in case of emergency. Fellow riders will be notified first to help you.
+                                If no one responds within 3 minutes, police will be automatically notified.
                             </Typography>
                         </CardContent>
                     </Card>
