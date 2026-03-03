@@ -20,13 +20,14 @@ import GroupIcon from '@mui/icons-material/Group'
 import LocalPoliceIcon from '@mui/icons-material/LocalPolice'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import HandshakeIcon from '@mui/icons-material/Handshake'
-import { sendLocation, sendSOS, getRiderAlerts, getCommunityAlerts, respondToAlert, escalateAlert, resolveAlert } from '../api/api'
+import { sendLocation, sendSOS, getRiderAlerts, getCommunityAlerts, respondToAlert, escalateAlert, resolveAlert, getPlaceName } from '../api/api'
 import MapView from '../components/MapView'
 import AlertTable from '../components/AlertTable'
 
 function RiderDashboard({ rider }) {
     const [tracking, setTracking] = useState(false)
     const [currentLocation, setCurrentLocation] = useState(null)
+    const [currentPlaceName, setCurrentPlaceName] = useState('')
     const [alerts, setAlerts] = useState([])
     const [communityAlerts, setCommunityAlerts] = useState([])
     const [message, setMessage] = useState({ type: '', text: '' })
@@ -126,24 +127,47 @@ function RiderDashboard({ rider }) {
                 reject(new Error('Geolocation not supported'))
                 return
             }
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    resolve({
-                        latitude: position.coords.latitude,
-                        longitude: position.coords.longitude,
-                    })
-                },
-                (error) => {
-                    console.error('Geolocation error:', error.code, error.message)
-                    reject(error)
-                },
-                { 
-                    enableHighAccuracy: true,
-                    timeout: 15000,        // Wait up to 15 seconds
-                    maximumAge: 30000      // Accept cached position up to 30 seconds old
-                }
-            )
+            
+            // Try high accuracy first, fallback to low accuracy
+            const tryGetPosition = (highAccuracy) => {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        resolve({
+                            latitude: position.coords.latitude,
+                            longitude: position.coords.longitude,
+                        })
+                    },
+                    (error) => {
+                        console.error('Geolocation error:', error.code, error.message)
+                        // If high accuracy failed, try low accuracy
+                        if (highAccuracy && error.code === error.TIMEOUT) {
+                            console.log('Retrying with low accuracy...')
+                            tryGetPosition(false)
+                        } else {
+                            reject(error)
+                        }
+                    },
+                    { 
+                        enableHighAccuracy: highAccuracy,
+                        timeout: highAccuracy ? 10000 : 20000,
+                        maximumAge: 60000  // Accept cached position up to 1 minute old
+                    }
+                )
+            }
+            
+            tryGetPosition(true)
         })
+    }
+
+    // Fetch place name for coordinates
+    const fetchPlaceName = async (lat, lng) => {
+        try {
+            const result = await getPlaceName(lat, lng)
+            setCurrentPlaceName(result.place_name || '')
+        } catch (err) {
+            console.error('Failed to get place name:', err)
+            setCurrentPlaceName('')
+        }
     }
 
     // Send location to server
@@ -151,6 +175,9 @@ function RiderDashboard({ rider }) {
         try {
             const position = await getCurrentPosition()
             setCurrentLocation(position)
+            
+            // Fetch place name in background
+            fetchPlaceName(position.latitude, position.longitude)
 
             await sendLocation({
                 rider_id: rider.id,
@@ -199,6 +226,9 @@ function RiderDashboard({ rider }) {
             // Always get fresh location for SOS
             const position = await getCurrentPosition()
             setCurrentLocation(position)
+            
+            // Fetch place name
+            fetchPlaceName(position.latitude, position.longitude)
 
             console.log('SOS Location:', position) // Debug log
 
@@ -215,9 +245,20 @@ function RiderDashboard({ rider }) {
             fetchAlerts() // Refresh alerts
         } catch (err) {
             console.error('SOS Error:', err)
+            // More specific error messages
+            let errorMsg = 'Failed to get your location. '
+            if (err.code === 1) {
+                errorMsg += 'Location permission denied. Please allow location access in your browser settings.'
+            } else if (err.code === 2) {
+                errorMsg += 'Location unavailable. Please check your device GPS settings.'
+            } else if (err.code === 3) {
+                errorMsg += 'Location request timed out. Please try again.'
+            } else {
+                errorMsg += 'Please enable location access and try again.'
+            }
             setMessage({
                 type: 'error',
-                text: 'Failed to get your location. Please enable location access and try again.'
+                text: errorMsg
             })
         } finally {
             setSosLoading(false)
@@ -474,13 +515,14 @@ function RiderDashboard({ rider }) {
                         <Card>
                             <CardContent>
                                 <Typography variant="h6" gutterBottom>
-                                    Current Coordinates
+                                    Current Location
                                 </Typography>
-                                <Typography variant="body2">
-                                    Lat: {currentLocation.latitude.toFixed(6)}
+                                <Typography variant="body1" fontWeight="bold" color="primary">
+                                    {currentLocation.latitude.toFixed(4)}, {currentLocation.longitude.toFixed(4)}
+                                    {currentPlaceName && `, ${currentPlaceName}`}
                                 </Typography>
-                                <Typography variant="body2">
-                                    Lng: {currentLocation.longitude.toFixed(6)}
+                                <Typography variant="caption" color="text.secondary">
+                                    Lat: {currentLocation.latitude.toFixed(6)} | Lng: {currentLocation.longitude.toFixed(6)}
                                 </Typography>
                             </CardContent>
                         </Card>

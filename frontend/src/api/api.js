@@ -93,4 +93,10 @@ export const resolveAlert = async (alertId, resolverId, notes = null) => {
     return response.data
 }
 
+// Reverse geocode coordinates to place name
+export const getPlaceName = async (lat, lng) => {
+    const response = await api.get(`/geocode?lat=${lat}&lng=${lng}`)
+    return response.data
+}
+
 export default api

@@ -422,6 +422,16 @@ def resolve_alert(
     )
 
 
+# Reverse geocoding endpoint
+@app.get("/geocode")
+def reverse_geocode(lat: float, lng: float):
+    """
+    Convert coordinates to place name.
+    """
+    place_name = get_place_name(lat, lng)
+    return {"place_name": place_name, "latitude": lat, "longitude": lng}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8000)
