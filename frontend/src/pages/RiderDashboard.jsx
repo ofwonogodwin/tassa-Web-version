@@ -123,9 +123,10 @@ function RiderDashboard({ rider }) {
     const getCurrentPosition = () => {
         return new Promise((resolve, reject) => {
             if (!navigator.geolocation) {
-                reject(new Error('Geolocation not supported'))
+                reject(new Error('Geolocation is not supported by your browser'))
                 return
             }
+            
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     resolve({
@@ -134,9 +135,31 @@ function RiderDashboard({ rider }) {
                     })
                 },
                 (error) => {
-                    reject(error)
+                    // Provide detailed error messages based on error code
+                    let errorMessage = 'Failed to get location. '
+                    
+                    switch(error.code) {
+                        case error.PERMISSION_DENIED:
+                            errorMessage += 'Please allow location access in your browser settings. Click the location icon in the address bar.'
+                            break
+                        case error.POSITION_UNAVAILABLE:
+                            errorMessage += 'Location information is unavailable. Make sure GPS/location services are enabled on your device.'
+                            break
+                        case error.TIMEOUT:
+                            errorMessage += 'Location request timed out. Please try again.'
+                            break
+                        default:
+                            errorMessage += 'An unknown error occurred. Error: ' + error.message
+                    }
+                    
+                    console.error('Geolocation error:', error)
+                    reject(new Error(errorMessage))
                 },
-                { enableHighAccuracy: true }
+                { 
+                    enableHighAccuracy: true,
+                    timeout: 10000,  // 10 second timeout
+                    maximumAge: 0    // Don't use cached position
+                }
             )
         })
     }
@@ -154,7 +177,7 @@ function RiderDashboard({ rider }) {
             })
         } catch (err) {
             console.error('Location update failed:', err)
-            setMessage({ type: 'error', text: 'Failed to get location' })
+            setMessage({ type: 'error', text: err.message || 'Failed to get location' })
         }
     }
 
@@ -171,7 +194,7 @@ function RiderDashboard({ rider }) {
             // Send location every 30 seconds
             intervalRef.current = setInterval(updateLocation, 30000)
         } catch (err) {
-            setMessage({ type: 'error', text: 'Failed to start tracking. Please enable location.' })
+            setMessage({ type: 'error', text: err.message || 'Failed to start tracking. Please enable location.' })
         }
     }
 
@@ -212,7 +235,7 @@ function RiderDashboard({ rider }) {
             console.error('SOS Error:', err)
             setMessage({
                 type: 'error',
-                text: 'Failed to get your location. Please enable location access and try again.'
+                text: err.message || 'Failed to send SOS. Please try again.'
             })
         } finally {
             setSosLoading(false)
