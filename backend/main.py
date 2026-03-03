@@ -1,14 +1,17 @@
 """
 TAASA - Smart Boda Boda Rider Tracking and Safety System
 Main FastAPI application with all API endpoints.
+
+Community Policing: Alerts go to fellow riders first, then police after delay.
 """
 
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from typing import Optional
 
 from database import engine, get_db, Base
-from models import Rider, Alert
+from models import Rider, Alert, AlertStatus
 import crud
 import schemas
 from anomaly import check_for_anomaly
@@ -109,6 +112,9 @@ def create_location(location: schemas.LocationCreate, db: Session = Depends(get_
 def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
     """
     Create an SOS emergency alert.
+    
+    Community Policing: Alert goes to fellow riders first (RIDER_PENDING status).
+    If no rider responds within 3 minutes, it auto-escalates to police.
     """
     # Verify rider exists
     rider = crud.get_rider_by_id(db, sos.rider_id)
@@ -116,7 +122,24 @@ def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Rider not found")
     
     alert = crud.create_sos_alert(db, sos)
-    return alert
+    place_name = get_place_name(alert.latitude, alert.longitude)
+    
+    return schemas.AlertResponse(
+        id=alert.id,
+        rider_id=alert.rider_id,
+        latitude=alert.latitude,
+        longitude=alert.longitude,
+        alert_type=alert.alert_type,
+        timestamp=alert.timestamp,
+        rider_name=rider.name,
+        plate_number=rider.plate_number,
+        location_name=place_name,
+        status=alert.status,
+        response_count=alert.response_count,
+        escalated_at=alert.escalated_at,
+        resolved_at=alert.resolved_at,
+        time_until_escalation=crud.get_time_until_escalation(alert)
+    )
 
 
 # Get all alerts endpoint

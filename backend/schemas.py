@@ -74,9 +74,33 @@ class AlertResponse(BaseModel):
     rider_name: Optional[str] = None
     plate_number: Optional[str] = None
     location_name: Optional[str] = None  # Human-readable place name
+    # Community policing fields
+    status: str = "RIDER_PENDING"
+    response_count: int = 0
+    escalated_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    # Time remaining before auto-escalation (in seconds)
+    time_until_escalation: Optional[int] = None
 
     class Config:
         from_attributes = True
+
+
+class AlertRespondRequest(BaseModel):
+    """Schema for a rider responding to a community alert."""
+    responder_id: int  # The rider who is responding
+
+
+class AlertEscalateRequest(BaseModel):
+    """Schema for manually escalating an alert to police."""
+    escalator_id: int  # The rider requesting escalation
+    reason: Optional[str] = None
+
+
+class AlertResolveRequest(BaseModel):
+    """Schema for marking an alert as resolved."""
+    resolver_id: int
+    resolution_notes: Optional[str] = None
 
 
 # Login Response
