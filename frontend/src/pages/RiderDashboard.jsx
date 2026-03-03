@@ -123,10 +123,9 @@ function RiderDashboard({ rider }) {
     const getCurrentPosition = () => {
         return new Promise((resolve, reject) => {
             if (!navigator.geolocation) {
-                reject(new Error('Geolocation is not supported by your browser'))
+                reject(new Error('Geolocation not supported'))
                 return
             }
-            
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     resolve({
@@ -135,30 +134,13 @@ function RiderDashboard({ rider }) {
                     })
                 },
                 (error) => {
-                    // Provide detailed error messages based on error code
-                    let errorMessage = 'Failed to get location. '
-                    
-                    switch(error.code) {
-                        case error.PERMISSION_DENIED:
-                            errorMessage += 'Please allow location access in your browser settings. Click the location icon in the address bar.'
-                            break
-                        case error.POSITION_UNAVAILABLE:
-                            errorMessage += 'Location information is unavailable. Make sure GPS/location services are enabled on your device.'
-                            break
-                        case error.TIMEOUT:
-                            errorMessage += 'Location request timed out. Please try again.'
-                            break
-                        default:
-                            errorMessage += 'An unknown error occurred. Error: ' + error.message
-                    }
-                    
-                    console.error('Geolocation error:', error)
-                    reject(new Error(errorMessage))
+                    console.error('Geolocation error:', error.code, error.message)
+                    reject(error)
                 },
                 { 
                     enableHighAccuracy: true,
-                    timeout: 10000,  // 10 second timeout
-                    maximumAge: 0    // Don't use cached position
+                    timeout: 15000,        // Wait up to 15 seconds
+                    maximumAge: 30000      // Accept cached position up to 30 seconds old
                 }
             )
         })
@@ -177,7 +159,7 @@ function RiderDashboard({ rider }) {
             })
         } catch (err) {
             console.error('Location update failed:', err)
-            setMessage({ type: 'error', text: err.message || 'Failed to get location' })
+            setMessage({ type: 'error', text: 'Failed to get location' })
         }
     }
 
@@ -194,7 +176,7 @@ function RiderDashboard({ rider }) {
             // Send location every 30 seconds
             intervalRef.current = setInterval(updateLocation, 30000)
         } catch (err) {
-            setMessage({ type: 'error', text: err.message || 'Failed to start tracking. Please enable location.' })
+            setMessage({ type: 'error', text: 'Failed to start tracking. Please enable location.' })
         }
     }
 
@@ -235,7 +217,7 @@ function RiderDashboard({ rider }) {
             console.error('SOS Error:', err)
             setMessage({
                 type: 'error',
-                text: err.message || 'Failed to send SOS. Please try again.'
+                text: 'Failed to get your location. Please enable location access and try again.'
             })
         } finally {
             setSosLoading(false)
@@ -484,15 +466,6 @@ function RiderDashboard({ rider }) {
                                 Press SOS in case of emergency. Fellow riders will be notified first to help you.
                                 If no one responds within 3 minutes, police will be automatically notified.
                             </Typography>
-                            
-                            <Box sx={{ mt: 2, p: 1.5, bgcolor: 'info.light', borderRadius: 1 }}>
-                                <Typography variant="caption" color="info.dark" sx={{ display: 'block', fontWeight: 'bold' }}>
-                                    📍 Location Access Required
-                                </Typography>
-                                <Typography variant="caption" color="info.dark" sx={{ display: 'block', mt: 0.5 }}>
-                                    Make sure to allow location access when prompted. Click the <strong>🔒 lock icon</strong> in your browser's address bar to manage permissions.
-                                </Typography>
-                            </Box>
                         </CardContent>
                     </Card>
 
