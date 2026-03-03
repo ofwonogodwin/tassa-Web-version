@@ -484,6 +484,15 @@ function RiderDashboard({ rider }) {
                                 Press SOS in case of emergency. Fellow riders will be notified first to help you.
                                 If no one responds within 3 minutes, police will be automatically notified.
                             </Typography>
+                            
+                            <Box sx={{ mt: 2, p: 1.5, bgcolor: 'info.light', borderRadius: 1 }}>
+                                <Typography variant="caption" color="info.dark" sx={{ display: 'block', fontWeight: 'bold' }}>
+                                    📍 Location Access Required
+                                </Typography>
+                                <Typography variant="caption" color="info.dark" sx={{ display: 'block', mt: 0.5 }}>
+                                    Make sure to allow location access when prompted. Click the <strong>🔒 lock icon</strong> in your browser's address bar to manage permissions.
+                                </Typography>
+                            </Box>
                         </CardContent>
                     </Card>
 
