@@ -275,24 +275,24 @@ function RiderDashboard({ rider }) {
                         <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
                             As a community, we help each other first. Respond to let them know help is on the way!
                         </Typography>
-                        
+
                         {communityAlerts.map((alert) => (
                             <Card key={alert.id} sx={{ mb: 2, bgcolor: 'background.paper' }}>
                                 <CardContent>
                                     <Grid container spacing={2} alignItems="center">
                                         <Grid item xs={12} md={6}>
                                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                                <Chip 
-                                                    label={alert.alert_type} 
-                                                    color={alert.alert_type === 'SOS' ? 'error' : 'warning'} 
-                                                    size="small" 
+                                                <Chip
+                                                    label={alert.alert_type}
+                                                    color={alert.alert_type === 'SOS' ? 'error' : 'warning'}
+                                                    size="small"
                                                 />
                                                 {alert.response_count > 0 && (
-                                                    <Chip 
+                                                    <Chip
                                                         icon={<HandshakeIcon />}
-                                                        label={`${alert.response_count} responding`} 
-                                                        color="success" 
-                                                        size="small" 
+                                                        label={`${alert.response_count} responding`}
+                                                        color="success"
+                                                        size="small"
                                                     />
                                                 )}
                                             </Box>
@@ -305,16 +305,16 @@ function RiderDashboard({ rider }) {
                                             <Typography variant="caption" color="text.secondary">
                                                 {new Date(alert.timestamp).toLocaleString()}
                                             </Typography>
-                                            
+
                                             {/* Time until auto-escalation */}
                                             {alert.time_until_escalation > 0 && (
                                                 <Box sx={{ mt: 1 }}>
                                                     <Typography variant="caption" color="text.secondary">
                                                         Auto-escalates to police in {Math.floor(alert.time_until_escalation / 60)}:{String(alert.time_until_escalation % 60).padStart(2, '0')}
                                                     </Typography>
-                                                    <LinearProgress 
-                                                        variant="determinate" 
-                                                        value={(1 - alert.time_until_escalation / 180) * 100} 
+                                                    <LinearProgress
+                                                        variant="determinate"
+                                                        value={(1 - alert.time_until_escalation / 180) * 100}
                                                         color="warning"
                                                         sx={{ mt: 0.5 }}
                                                     />

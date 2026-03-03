@@ -94,8 +94,8 @@ function PoliceDashboard() {
 
             {/* Community Policing Info */}
             <Alert severity="info" sx={{ mb: 3 }} icon={<GroupIcon />}>
-                <strong>Community Policing Active:</strong> Alerts go to fellow riders first. 
-                You see alerts after they've been escalated (no rider response within 3 minutes) 
+                <strong>Community Policing Active:</strong> Alerts go to fellow riders first.
+                You see alerts after they've been escalated (no rider response within 3 minutes)
                 or manually escalated by a rider.
             </Alert>
 

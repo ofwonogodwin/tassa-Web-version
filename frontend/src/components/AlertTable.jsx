@@ -8,9 +8,11 @@ import {
     Paper,
     Chip,
     Typography,
+    Box,
 } from '@mui/material'
+import HandshakeIcon from '@mui/icons-material/Handshake'
 
-function AlertTable({ alerts, showRiderName = false }) {
+function AlertTable({ alerts, showRiderName = false, showStatus = false }) {
     // Format timestamp for display
     const formatDate = (timestamp) => {
         const date = new Date(timestamp)
@@ -20,6 +22,26 @@ function AlertTable({ alerts, showRiderName = false }) {
     // Get chip color based on alert type
     const getChipColor = (type) => {
         return type === 'SOS' ? 'error' : 'warning'
+    }
+
+    // Get chip color based on status
+    const getStatusColor = (status) => {
+        switch (status) {
+            case 'ESCALATED': return 'error'
+            case 'RIDER_PENDING': return 'warning'
+            case 'RESOLVED': return 'success'
+            default: return 'default'
+        }
+    }
+
+    // Get status display text
+    const getStatusText = (status) => {
+        switch (status) {
+            case 'ESCALATED': return 'Police Notified'
+            case 'RIDER_PENDING': return 'With Riders'
+            case 'RESOLVED': return 'Resolved'
+            default: return status
+        }
     }
 
     if (alerts.length === 0) {
@@ -39,6 +61,7 @@ function AlertTable({ alerts, showRiderName = false }) {
                         {showRiderName && <TableCell>Rider</TableCell>}
                         {showRiderName && <TableCell>Plate No.</TableCell>}
                         <TableCell>Type</TableCell>
+                        {showStatus && <TableCell>Status</TableCell>}
                         <TableCell>Location</TableCell>
                         <TableCell>Timestamp</TableCell>
                     </TableRow>
@@ -56,9 +79,34 @@ function AlertTable({ alerts, showRiderName = false }) {
                                     size="small"
                                 />
                             </TableCell>
+                            {showStatus && (
+                                <TableCell>
+                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                        <Chip
+                                            label={getStatusText(alert.status)}
+                                            color={getStatusColor(alert.status)}
+                                            size="small"
+                                            variant="outlined"
+                                        />
+                                        {alert.response_count > 0 && (
+                                            <Chip
+                                                icon={<HandshakeIcon />}
+                                                label={alert.response_count}
+                                                color="success"
+                                                size="small"
+                                                variant="outlined"
+                                            />
+                                        )}
+                                    </Box>
+                                </TableCell>
+                            )}
                             <TableCell>
                                 {alert.latitude.toFixed(4)}, {alert.longitude.toFixed(4)}
-                                {alert.location_name && `, ${alert.location_name}`}
+                                {alert.location_name && (
+                                    <Typography variant="caption" display="block" color="text.secondary">
+                                        {alert.location_name}
+                                    </Typography>
+                                )}
                             </TableCell>
                             <TableCell>{formatDate(alert.timestamp)}</TableCell>
                         </TableRow>
