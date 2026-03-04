@@ -79,5 +79,20 @@ class Alert(Base):
     escalated_at = Column(DateTime, nullable=True)  # When escalated to police
     resolved_at = Column(DateTime, nullable=True)  # When resolved
 
-    # Relationship
+    # Relationships
     rider = relationship("Rider", back_populates="alerts")
+    responses = relationship("AlertResponse", back_populates="alert")
+
+
+class AlertResponse(Base):
+    """Tracks which riders responded to an alert."""
+    __tablename__ = "alert_responses"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alert_id = Column(Integer, ForeignKey("alerts.id"), nullable=False)
+    responder_id = Column(Integer, ForeignKey("riders.id"), nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)
+
+    # Relationships
+    alert = relationship("Alert", back_populates="responses")
+    responder = relationship("Rider")

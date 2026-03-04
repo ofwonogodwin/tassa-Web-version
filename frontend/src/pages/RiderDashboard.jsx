@@ -487,7 +487,85 @@ function RiderDashboard({ rider }) {
                 </Card>
             )}
 
-            {/* Controls */}
+            {/* Your Active Alert Status - Full width like Community Alerts */}
+            {alerts.filter(a => a.status !== 'RESOLVED').length > 0 && (
+                <Card sx={{ mb: 3, border: 2, borderColor: 'info.main' }}>
+                    <CardContent>
+                        <Typography variant="h6" gutterBottom color="info.main">
+                            Your Active Alert Status
+                        </Typography>
+                        {alerts.filter(a => a.status !== 'RESOLVED').map((alert) => (
+                            <Card key={alert.id} sx={{ mb: 2, bgcolor: alert.status === 'ESCALATED' ? 'error.light' : 'warning.light' }}>
+                                <CardContent>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                        <Chip
+                                            label={alert.alert_type}
+                                            color={alert.alert_type === 'SOS' ? 'error' : 'warning'}
+                                            size="small"
+                                        />
+                                        <Typography variant="caption" color="text.secondary">
+                                            {new Date(alert.timestamp).toLocaleString()}
+                                        </Typography>
+                                    </Box>
+
+                                    <Typography variant="body2" gutterBottom>
+                                        {alert.location_name || `${alert.latitude.toFixed(4)}, ${alert.longitude.toFixed(4)}`}
+                                    </Typography>
+
+                                    {/* Status Display */}
+                                    <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
+                                        {alert.status === 'RIDER_PENDING' && (
+                                            <>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                                    <GroupIcon color="warning" />
+                                                    <Typography variant="body1" fontWeight="bold" color="warning.dark">
+                                                        Fellow Riders Notified
+                                                    </Typography>
+                                                </Box>
+                                                {alert.response_count > 0 ? (
+                                                    <Alert severity="success" sx={{ mt: 1 }}>
+                                                        <Typography variant="body2" fontWeight="bold">
+                                                            {alert.response_count} rider{alert.response_count > 1 ? 's' : ''} responding to help you!
+                                                        </Typography>
+                                                    </Alert>
+                                                ) : (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Waiting for nearby riders to respond...
+                                                        {alert.time_until_escalation > 0 && (
+                                                            <> Auto-escalates to police in {Math.floor(alert.time_until_escalation / 60)}:{String(alert.time_until_escalation % 60).padStart(2, '0')}</>
+                                                        )}
+                                                    </Typography>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {alert.status === 'ESCALATED' && (
+                                            <>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                                    <LocalPoliceIcon color="error" />
+                                                    <Typography variant="body1" fontWeight="bold" color="error.dark">
+                                                        Police Have Been Notified!
+                                                    </Typography>
+                                                </Box>
+                                                <Alert severity="info" sx={{ mt: 1 }}>
+                                                    <Typography variant="body2">
+                                                        Your alert has been escalated to police. Help is on the way.
+                                                        {alert.response_count > 0 && (
+                                                            <> {alert.response_count} fellow rider{alert.response_count > 1 ? 's are' : ' is'} also responding.</>
+                                                        )}
+                                                    </Typography>
+                                                </Alert>
+                                            </>
+                                        )}
+                                    </Box>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Controls - Your Location and Tracking Controls side by side */}
             <Grid container spacing={3}>
                 <Grid item xs={12} md={8}>
                     {/* Map */}
@@ -519,84 +597,6 @@ function RiderDashboard({ rider }) {
                             </Box>
                         </CardContent>
                     </Card>
-
-                    {/* Active Alert Status - Shows the rider who is responding to their alerts */}
-                    {alerts.filter(a => a.status !== 'RESOLVED').length > 0 && (
-                        <Card sx={{ mb: 3, border: 2, borderColor: 'info.main' }}>
-                            <CardContent>
-                                <Typography variant="h6" gutterBottom color="info.main">
-                                    Your Active Alert Status
-                                </Typography>
-                                {alerts.filter(a => a.status !== 'RESOLVED').map((alert) => (
-                                    <Card key={alert.id} sx={{ mb: 2, bgcolor: alert.status === 'ESCALATED' ? 'error.light' : 'warning.light' }}>
-                                        <CardContent>
-                                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                                                <Chip 
-                                                    label={alert.alert_type} 
-                                                    color={alert.alert_type === 'SOS' ? 'error' : 'warning'} 
-                                                    size="small" 
-                                                />
-                                                <Typography variant="caption" color="text.secondary">
-                                                    {new Date(alert.timestamp).toLocaleString()}
-                                                </Typography>
-                                            </Box>
-                                            
-                                            <Typography variant="body2" gutterBottom>
-                                                {alert.location_name || `${alert.latitude.toFixed(4)}, ${alert.longitude.toFixed(4)}`}
-                                            </Typography>
-                                            
-                                            {/* Status Display */}
-                                            <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
-                                                {alert.status === 'RIDER_PENDING' && (
-                                                    <>
-                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                                            <GroupIcon color="warning" />
-                                                            <Typography variant="body1" fontWeight="bold" color="warning.dark">
-                                                                Fellow Riders Notified
-                                                            </Typography>
-                                                        </Box>
-                                                        {alert.response_count > 0 ? (
-                                                            <Alert severity="success" sx={{ mt: 1 }}>
-                                                                <Typography variant="body2" fontWeight="bold">
-                                                                    {alert.response_count} rider{alert.response_count > 1 ? 's' : ''} responding to help you!
-                                                                </Typography>
-                                                            </Alert>
-                                                        ) : (
-                                                            <Typography variant="body2" color="text.secondary">
-                                                                Waiting for nearby riders to respond...
-                                                                {alert.time_until_escalation > 0 && (
-                                                                    <> Auto-escalates to police in {Math.floor(alert.time_until_escalation / 60)}:{String(alert.time_until_escalation % 60).padStart(2, '0')}</>
-                                                                )}
-                                                            </Typography>
-                                                        )}
-                                                    </>
-                                                )}
-                                                
-                                                {alert.status === 'ESCALATED' && (
-                                                    <>
-                                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                                            <LocalPoliceIcon color="error" />
-                                                            <Typography variant="body1" fontWeight="bold" color="error.dark">
-                                                                Police Have Been Notified!
-                                                            </Typography>
-                                                        </Box>
-                                                        <Alert severity="info" sx={{ mt: 1 }}>
-                                                            <Typography variant="body2">
-                                                                Your alert has been escalated to police. Help is on the way.
-                                                                {alert.response_count > 0 && (
-                                                                    <> {alert.response_count} fellow rider{alert.response_count > 1 ? 's are' : ' is'} also responding.</>
-                                                                )}
-                                                            </Typography>
-                                                        </Alert>
-                                                    </>
-                                                )}
-                                            </Box>
-                                        </CardContent>
-                                    </Card>
-                                ))}
-                            </CardContent>
-                        </Card>
-                    )}
 
                     {/* Recent Alerts */}
                     <Card>

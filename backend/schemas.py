@@ -5,7 +5,7 @@ Separates API data structures from database models.
 
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 
 # Rider Schemas
