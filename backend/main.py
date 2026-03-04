@@ -123,6 +123,7 @@ def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
     
     alert = crud.create_sos_alert(db, sos)
     place_name = get_place_name(alert.latitude, alert.longitude)
+    responders = crud.get_alert_responders(db, alert.id)
     
     return schemas.AlertResponse(
         id=alert.id,
@@ -138,7 +139,8 @@ def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
         response_count=alert.response_count,
         escalated_at=alert.escalated_at,
         resolved_at=alert.resolved_at,
-        time_until_escalation=crud.get_time_until_escalation(alert)
+        time_until_escalation=crud.get_time_until_escalation(alert),
+        responders=responders
     )
 
 
@@ -173,6 +175,7 @@ def get_alerts(
     for alert in alerts:
         rider = crud.get_rider_by_id(db, alert.rider_id)
         place_name = get_place_name(alert.latitude, alert.longitude)
+        responders = crud.get_alert_responders(db, alert.id)
         alert_data = schemas.AlertResponse(
             id=alert.id,
             rider_id=alert.rider_id,
@@ -187,7 +190,8 @@ def get_alerts(
             response_count=alert.response_count,
             escalated_at=alert.escalated_at,
             resolved_at=alert.resolved_at,
-            time_until_escalation=crud.get_time_until_escalation(alert)
+            time_until_escalation=crud.get_time_until_escalation(alert),
+            responders=responders
         )
         result.append(alert_data)
     
@@ -231,6 +235,7 @@ def get_rider_alerts(rider_id: int, db: Session = Depends(get_db)):
     result = []
     for alert in alerts:
         place_name = get_place_name(alert.latitude, alert.longitude)
+        responders = crud.get_alert_responders(db, alert.id)
         alert_data = schemas.AlertResponse(
             id=alert.id,
             rider_id=alert.rider_id,
@@ -245,7 +250,8 @@ def get_rider_alerts(rider_id: int, db: Session = Depends(get_db)):
             response_count=alert.response_count,
             escalated_at=alert.escalated_at,
             resolved_at=alert.resolved_at,
-            time_until_escalation=crud.get_time_until_escalation(alert)
+            time_until_escalation=crud.get_time_until_escalation(alert),
+            responders=responders
         )
         result.append(alert_data)
     
@@ -275,6 +281,7 @@ def get_community_alerts(
     for alert in alerts:
         rider = crud.get_rider_by_id(db, alert.rider_id)
         place_name = get_place_name(alert.latitude, alert.longitude)
+        responders = crud.get_alert_responders(db, alert.id)
         alert_data = schemas.AlertResponse(
             id=alert.id,
             rider_id=alert.rider_id,
@@ -289,7 +296,8 @@ def get_community_alerts(
             response_count=alert.response_count,
             escalated_at=alert.escalated_at,
             resolved_at=alert.resolved_at,
-            time_until_escalation=crud.get_time_until_escalation(alert)
+            time_until_escalation=crud.get_time_until_escalation(alert),
+            responders=responders
         )
         result.append(alert_data)
     
@@ -313,12 +321,13 @@ def respond_to_alert(
     if not responder:
         raise HTTPException(status_code=404, detail="Responder rider not found")
     
-    alert = crud.respond_to_alert(db, alert_id)
+    alert = crud.respond_to_alert(db, alert_id, request.responder_id)
     if not alert:
         raise HTTPException(status_code=404, detail="Alert not found or already escalated")
     
     rider = crud.get_rider_by_id(db, alert.rider_id)
     place_name = get_place_name(alert.latitude, alert.longitude)
+    responders = crud.get_alert_responders(db, alert_id)
     
     return schemas.AlertResponse(
         id=alert.id,
@@ -334,7 +343,8 @@ def respond_to_alert(
         response_count=alert.response_count,
         escalated_at=alert.escalated_at,
         resolved_at=alert.resolved_at,
-        time_until_escalation=crud.get_time_until_escalation(alert)
+        time_until_escalation=crud.get_time_until_escalation(alert),
+        responders=responders
     )
 
 
@@ -361,6 +371,7 @@ def escalate_alert(
     
     rider = crud.get_rider_by_id(db, alert.rider_id)
     place_name = get_place_name(alert.latitude, alert.longitude)
+    responders = crud.get_alert_responders(db, alert_id)
     
     return schemas.AlertResponse(
         id=alert.id,
@@ -376,7 +387,8 @@ def escalate_alert(
         response_count=alert.response_count,
         escalated_at=alert.escalated_at,
         resolved_at=alert.resolved_at,
-        time_until_escalation=crud.get_time_until_escalation(alert)
+        time_until_escalation=crud.get_time_until_escalation(alert),
+        responders=responders
     )
 
 
@@ -403,6 +415,7 @@ def resolve_alert(
     
     rider = crud.get_rider_by_id(db, alert.rider_id)
     place_name = get_place_name(alert.latitude, alert.longitude)
+    responders = crud.get_alert_responders(db, alert_id)
     
     return schemas.AlertResponse(
         id=alert.id,
@@ -418,7 +431,8 @@ def resolve_alert(
         response_count=alert.response_count,
         escalated_at=alert.escalated_at,
         resolved_at=alert.resolved_at,
-        time_until_escalation=-1  # Resolved
+        time_until_escalation=-1,  # Resolved
+        responders=responders
     )
 
 

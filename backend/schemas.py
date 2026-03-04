@@ -5,7 +5,7 @@ Separates API data structures from database models.
 
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 
 # Rider Schemas
@@ -63,6 +63,17 @@ class SOSCreate(BaseModel):
     longitude: float
 
 
+class ResponderInfo(BaseModel):
+    """Schema for responder information."""
+    id: int
+    name: str
+    plate_number: str
+    responded_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
 class AlertResponse(BaseModel):
     """Schema for alert response data."""
     id: int
@@ -81,6 +92,8 @@ class AlertResponse(BaseModel):
     resolved_at: Optional[datetime] = None
     # Time remaining before auto-escalation (in seconds)
     time_until_escalation: Optional[int] = None
+    # List of responders with their details
+    responders: List[ResponderInfo] = []
 
     class Config:
         from_attributes = True

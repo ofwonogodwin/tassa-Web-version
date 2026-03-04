@@ -33,8 +33,33 @@ function RiderDashboard({ rider }) {
     const [message, setMessage] = useState({ type: '', text: '' })
     const [sosLoading, setSosLoading] = useState(false)
     const [respondingTo, setRespondingTo] = useState(null)
+    const [locationPermission, setLocationPermission] = useState('unknown')
     const intervalRef = useRef(null)
     const communityIntervalRef = useRef(null)
+
+    // Check location permission on mount
+    useEffect(() => {
+        const checkLocationPermission = async () => {
+            try {
+                // Check if Permissions API is available
+                if (navigator.permissions) {
+                    const result = await navigator.permissions.query({ name: 'geolocation' })
+                    setLocationPermission(result.state)
+                    console.log('Location permission status:', result.state)
+
+                    // Listen for permission changes
+                    result.onchange = () => {
+                        setLocationPermission(result.state)
+                        console.log('Location permission changed to:', result.state)
+                    }
+                }
+            } catch (err) {
+                console.log('Could not check location permission:', err)
+            }
+        }
+
+        checkLocationPermission()
+    }, [])
 
     // Fetch rider alerts on mount
     useEffect(() => {
@@ -42,7 +67,10 @@ function RiderDashboard({ rider }) {
         fetchCommunityAlerts()
 
         // Auto-refresh community alerts every 15 seconds (faster than police)
-        communityIntervalRef.current = setInterval(fetchCommunityAlerts, 15000)
+        communityIntervalRef.current = setInterval(() => {
+            fetchCommunityAlerts()
+            fetchAlerts() // Also refresh own alerts to see status updates
+        }, 15000)
 
         return () => {
             if (communityIntervalRef.current) {
@@ -89,7 +117,8 @@ function RiderDashboard({ rider }) {
             fetchCommunityAlerts()
         } catch (err) {
             console.error('Failed to respond to alert:', err)
-            setMessage({ type: 'error', text: 'Failed to respond to alert' })
+            const errorMsg = err.response?.data?.detail || 'Failed to respond to alert. The alert may have been resolved or escalated.'
+            setMessage({ type: 'error', text: errorMsg })
         } finally {
             setRespondingTo(null)
         }
@@ -103,7 +132,8 @@ function RiderDashboard({ rider }) {
             fetchCommunityAlerts()
         } catch (err) {
             console.error('Failed to escalate alert:', err)
-            setMessage({ type: 'error', text: 'Failed to escalate alert' })
+            const errorMsg = err.response?.data?.detail || 'Failed to escalate alert. The alert may have already been escalated or resolved.'
+            setMessage({ type: 'error', text: errorMsg })
         }
     }
 
@@ -116,7 +146,8 @@ function RiderDashboard({ rider }) {
             fetchAlerts()
         } catch (err) {
             console.error('Failed to resolve alert:', err)
-            setMessage({ type: 'error', text: 'Failed to resolve alert' })
+            const errorMsg = err.response?.data?.detail || 'Failed to resolve alert. The alert may have already been resolved.'
+            setMessage({ type: 'error', text: errorMsg })
         }
     }
 
@@ -128,10 +159,23 @@ function RiderDashboard({ rider }) {
                 return
             }
 
-            // Try high accuracy first, fallback to low accuracy
+            // Check if we're on HTTPS (required for geolocation on deployed sites)
+            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost'
+            if (!isSecure) {
+                console.warn('Geolocation requires HTTPS on deployed sites')
+            }
+
+            // Try to get position with multiple attempts
+            let attempts = 0
+            const maxAttempts = 3
+
             const tryGetPosition = (highAccuracy) => {
+                attempts++
+                console.log(`Geolocation attempt ${attempts}/${maxAttempts}, highAccuracy: ${highAccuracy}`)
+
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
+                        console.log('Geolocation success:', position.coords)
                         resolve({
                             latitude: position.coords.latitude,
                             longitude: position.coords.longitude,
@@ -139,22 +183,35 @@ function RiderDashboard({ rider }) {
                     },
                     (error) => {
                         console.error('Geolocation error:', error.code, error.message)
-                        // If high accuracy failed, try low accuracy
-                        if (highAccuracy && error.code === error.TIMEOUT) {
-                            console.log('Retrying with low accuracy...')
-                            tryGetPosition(false)
+
+                        // If permission denied, don't retry
+                        if (error.code === 1) {
+                            reject(error)
+                            return
+                        }
+
+                        // If timeout or unavailable, retry with different settings
+                        if (attempts < maxAttempts) {
+                            if (highAccuracy) {
+                                console.log('Retrying with low accuracy...')
+                                setTimeout(() => tryGetPosition(false), 500)
+                            } else {
+                                console.log('Retrying again...')
+                                setTimeout(() => tryGetPosition(false), 1000)
+                            }
                         } else {
                             reject(error)
                         }
                     },
                     {
                         enableHighAccuracy: highAccuracy,
-                        timeout: highAccuracy ? 10000 : 20000,
-                        maximumAge: 60000  // Accept cached position up to 1 minute old
+                        timeout: highAccuracy ? 15000 : 30000,
+                        maximumAge: 120000  // Accept cached position up to 2 minutes old
                     }
                 )
             }
 
+            // Start with high accuracy
             tryGetPosition(true)
         })
     }
@@ -263,9 +320,12 @@ function RiderDashboard({ rider }) {
             // More specific error messages
             let errorMsg = 'Failed to get your location. '
             if (err.code === 1) {
-                errorMsg += 'Location permission denied. Please allow location access in your browser settings.'
+                errorMsg += 'Location permission denied. Try these steps:\n'
+                errorMsg += '1. Click the lock/info icon in your browser address bar\n'
+                errorMsg += '2. Find "Location" and change it to "Allow"\n'
+                errorMsg += '3. Refresh the page and try again'
             } else if (err.code === 2) {
-                errorMsg += 'Location unavailable. Please check your device GPS settings.'
+                errorMsg += 'Location unavailable. Please check your device GPS/location settings are turned on.'
             } else if (err.code === 3) {
                 errorMsg += 'Location request timed out. Please try again.'
             } else {
@@ -430,7 +490,103 @@ function RiderDashboard({ rider }) {
                 </Card>
             )}
 
-            {/* Controls */}
+            {/* Your Active Alert Status - Full width like Community Alerts */}
+            {alerts.filter(a => a.status !== 'RESOLVED').length > 0 && (
+                <Card sx={{ mb: 3, border: 2, borderColor: 'info.main' }}>
+                    <CardContent>
+                        <Typography variant="h6" gutterBottom color="info.main">
+                            Your Active Alert Status
+                        </Typography>
+                        {alerts.filter(a => a.status !== 'RESOLVED').map((alert) => (
+                            <Card key={alert.id} sx={{ mb: 2, bgcolor: alert.status === 'ESCALATED' ? 'error.light' : 'warning.light' }}>
+                                <CardContent>
+                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                                        <Chip
+                                            label={alert.alert_type}
+                                            color={alert.alert_type === 'SOS' ? 'error' : 'warning'}
+                                            size="small"
+                                        />
+                                        <Typography variant="caption" color="text.secondary">
+                                            {new Date(alert.timestamp).toLocaleString()}
+                                        </Typography>
+                                    </Box>
+
+                                    <Typography variant="body2" gutterBottom>
+                                        {alert.location_name || `${alert.latitude.toFixed(4)}, ${alert.longitude.toFixed(4)}`}
+                                    </Typography>
+
+                                    {/* Status Display */}
+                                    <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
+                                        {alert.status === 'RIDER_PENDING' && (
+                                            <>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                                    <GroupIcon color="warning" />
+                                                    <Typography variant="body1" fontWeight="bold" color="warning.dark">
+                                                        Fellow Riders Notified
+                                                    </Typography>
+                                                </Box>
+                                                {alert.response_count > 0 ? (
+                                                    <Alert severity="success" sx={{ mt: 1 }}>
+                                                        <Typography variant="body2" fontWeight="bold" gutterBottom>
+                                                            {alert.response_count} rider{alert.response_count > 1 ? 's' : ''} responding to help you!
+                                                        </Typography>
+                                                        {alert.responders && alert.responders.length > 0 && (
+                                                            <Box sx={{ mt: 1 }}>
+                                                                {alert.responders.map((responder, idx) => (
+                                                                    <Typography key={idx} variant="body2" sx={{ ml: 1 }}>
+                                                                        • <strong>{responder.name}</strong> ({responder.plate_number})
+                                                                    </Typography>
+                                                                ))}
+                                                            </Box>
+                                                        )}
+                                                    </Alert>
+                                                ) : (
+                                                    <Typography variant="body2" color="text.secondary">
+                                                        Waiting for nearby riders to respond...
+                                                        {alert.time_until_escalation > 0 && (
+                                                            <> Auto-escalates to police in {Math.floor(alert.time_until_escalation / 60)}:{String(alert.time_until_escalation % 60).padStart(2, '0')}</>
+                                                        )}
+                                                    </Typography>
+                                                )}
+                                            </>
+                                        )}
+
+                                        {alert.status === 'ESCALATED' && (
+                                            <>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+                                                    <LocalPoliceIcon color="error" />
+                                                    <Typography variant="body1" fontWeight="bold" color="error.dark">
+                                                        Police Have Been Notified!
+                                                    </Typography>
+                                                </Box>
+                                                <Alert severity="info" sx={{ mt: 1 }}>
+                                                    <Typography variant="body2">
+                                                        Your alert has been escalated to police. Help is on the way.
+                                                    </Typography>
+                                                    {alert.response_count > 0 && alert.responders && alert.responders.length > 0 && (
+                                                        <Box sx={{ mt: 1 }}>
+                                                            <Typography variant="body2" fontWeight="bold">
+                                                                {alert.response_count} fellow rider{alert.response_count > 1 ? 's are' : ' is'} also responding:
+                                                            </Typography>
+                                                            {alert.responders.map((responder, idx) => (
+                                                                <Typography key={idx} variant="body2" sx={{ ml: 1 }}>
+                                                                    • <strong>{responder.name}</strong> ({responder.plate_number})
+                                                                </Typography>
+                                                            ))}
+                                                        </Box>
+                                                    )}
+                                                </Alert>
+                                            </>
+                                        )}
+                                    </Box>
+                                </CardContent>
+                            </Card>
+                        ))}
+                    </CardContent>
+                </Card>
+            )}
+
+            {/* Controls - Your Location and Tracking Controls side by side */}
             <Grid container spacing={3}>
                 <Grid item xs={12} md={8}>
                     {/* Map */}
@@ -467,9 +623,9 @@ function RiderDashboard({ rider }) {
                     <Card>
                         <CardContent>
                             <Typography variant="h6" gutterBottom>
-                                Your Alerts
+                                Your Alerts History
                             </Typography>
-                            <AlertTable alerts={alerts} />
+                            <AlertTable alerts={alerts} showRiderName={true} showStatus={true} />
                         </CardContent>
                     </Card>
                 </Grid>
@@ -517,6 +673,13 @@ function RiderDashboard({ rider }) {
                             >
                                 {sosLoading ? 'Sending SOS...' : 'Send SOS'}
                             </Button>
+
+                            {locationPermission === 'denied' && (
+                                <Alert severity="warning" sx={{ mt: 2 }}>
+                                    Location access is blocked. Click the lock icon in your browser's address bar,
+                                    find "Location" and change it to "Allow", then refresh the page.
+                                </Alert>
+                            )}
 
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
                                 Press SOS in case of emergency. Fellow riders will be notified first to help you.

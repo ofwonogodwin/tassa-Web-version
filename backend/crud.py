@@ -5,7 +5,7 @@ Contains all database operations for riders, locations, and alerts.
 
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from models import Rider, Location, Alert, AlertStatus, ESCALATION_DELAY_SECONDS
+from models import Rider, Location, Alert, AlertStatus, ESCALATION_DELAY_SECONDS, AlertResponse
 from schemas import RiderCreate, LocationCreate, SOSCreate
 
 
@@ -135,43 +135,113 @@ def get_escalated_alerts(db: Session, limit: int = 100) -> list:
     ).order_by(Alert.timestamp.desc()).limit(limit).all()
 
 
-def respond_to_alert(db: Session, alert_id: int) -> Alert:
+def respond_to_alert(db: Session, alert_id: int, responder_id: int) -> Alert:
     """
     Record that a fellow rider has responded to an alert.
-    Increments the response_count.
+    Increments the response_count and stores responder info.
+    Returns None if alert not found or not in RIDER_PENDING status.
     """
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
-    if alert and alert.status == AlertStatus.RIDER_PENDING.value:
+    if not alert:
+        return None
+    
+    # Only allow responding to RIDER_PENDING alerts
+    if alert.status != AlertStatus.RIDER_PENDING.value:
+        return None
+    
+    try:
+        # Check if this rider already responded
+        existing_response = db.query(AlertResponse).filter(
+            AlertResponse.alert_id == alert_id,
+            AlertResponse.responder_id == responder_id
+        ).first()
+        
+        if not existing_response:
+            # Create response record
+            response = AlertResponse(
+                alert_id=alert_id,
+                responder_id=responder_id
+            )
+            db.add(response)
+            alert.response_count += 1
+            db.commit()
+            db.refresh(alert)
+    except Exception as e:
+        # If alert_responses table doesn't exist, just increment count
+        print(f"Warning: Could not record responder (table may not exist): {e}")
+        db.rollback()
         alert.response_count += 1
         db.commit()
         db.refresh(alert)
+    
     return alert
+
+
+def get_alert_responders(db: Session, alert_id: int) -> list:
+    """
+    Get list of riders who responded to an alert.
+    Returns empty list if table doesn't exist.
+    """
+    try:
+        responses = db.query(AlertResponse).filter(
+            AlertResponse.alert_id == alert_id
+        ).all()
+        
+        responders = []
+        for response in responses:
+            rider = db.query(Rider).filter(Rider.id == response.responder_id).first()
+            if rider:
+                responders.append({
+                    "id": rider.id,
+                    "name": rider.name,
+                    "plate_number": rider.plate_number,
+                    "responded_at": response.timestamp
+                })
+        return responders
+    except Exception as e:
+        # If alert_responses table doesn't exist, return empty list
+        print(f"Warning: Could not get responders (table may not exist): {e}")
+        return []
 
 
 def escalate_alert(db: Session, alert_id: int) -> Alert:
     """
     Escalate an alert to police.
     Changes status from RIDER_PENDING to ESCALATED.
+    Returns None if alert not found or not in RIDER_PENDING status.
     """
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
-    if alert and alert.status == AlertStatus.RIDER_PENDING.value:
-        alert.status = AlertStatus.ESCALATED.value
-        alert.escalated_at = datetime.utcnow()
-        db.commit()
-        db.refresh(alert)
+    if not alert:
+        return None
+    
+    # Only allow escalating RIDER_PENDING alerts
+    if alert.status != AlertStatus.RIDER_PENDING.value:
+        return None
+    
+    alert.status = AlertStatus.ESCALATED.value
+    alert.escalated_at = datetime.utcnow()
+    db.commit()
+    db.refresh(alert)
     return alert
 
 
 def resolve_alert(db: Session, alert_id: int) -> Alert:
     """
     Mark an alert as resolved.
+    Returns None if alert not found or already resolved.
     """
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
-    if alert and alert.status != AlertStatus.RESOLVED.value:
-        alert.status = AlertStatus.RESOLVED.value
-        alert.resolved_at = datetime.utcnow()
-        db.commit()
-        db.refresh(alert)
+    if not alert:
+        return None
+    
+    # Don't allow resolving an already resolved alert
+    if alert.status == AlertStatus.RESOLVED.value:
+        return None
+    
+    alert.status = AlertStatus.RESOLVED.value
+    alert.resolved_at = datetime.utcnow()
+    db.commit()
+    db.refresh(alert)
     return alert
 
 
