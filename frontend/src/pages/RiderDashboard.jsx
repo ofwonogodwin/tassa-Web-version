@@ -117,7 +117,8 @@ function RiderDashboard({ rider }) {
             fetchCommunityAlerts()
         } catch (err) {
             console.error('Failed to respond to alert:', err)
-            setMessage({ type: 'error', text: 'Failed to respond to alert' })
+            const errorMsg = err.response?.data?.detail || 'Failed to respond to alert. The alert may have been resolved or escalated.'
+            setMessage({ type: 'error', text: errorMsg })
         } finally {
             setRespondingTo(null)
         }
@@ -131,7 +132,8 @@ function RiderDashboard({ rider }) {
             fetchCommunityAlerts()
         } catch (err) {
             console.error('Failed to escalate alert:', err)
-            setMessage({ type: 'error', text: 'Failed to escalate alert' })
+            const errorMsg = err.response?.data?.detail || 'Failed to escalate alert. The alert may have already been escalated or resolved.'
+            setMessage({ type: 'error', text: errorMsg })
         }
     }
 
@@ -144,7 +146,8 @@ function RiderDashboard({ rider }) {
             fetchAlerts()
         } catch (err) {
             console.error('Failed to resolve alert:', err)
-            setMessage({ type: 'error', text: 'Failed to resolve alert' })
+            const errorMsg = err.response?.data?.detail || 'Failed to resolve alert. The alert may have already been resolved.'
+            setMessage({ type: 'error', text: errorMsg })
         }
     }
 
