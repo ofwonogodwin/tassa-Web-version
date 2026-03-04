@@ -524,9 +524,18 @@ function RiderDashboard({ rider }) {
                                                 </Box>
                                                 {alert.response_count > 0 ? (
                                                     <Alert severity="success" sx={{ mt: 1 }}>
-                                                        <Typography variant="body2" fontWeight="bold">
+                                                        <Typography variant="body2" fontWeight="bold" gutterBottom>
                                                             {alert.response_count} rider{alert.response_count > 1 ? 's' : ''} responding to help you!
                                                         </Typography>
+                                                        {alert.responders && alert.responders.length > 0 && (
+                                                            <Box sx={{ mt: 1 }}>
+                                                                {alert.responders.map((responder, idx) => (
+                                                                    <Typography key={idx} variant="body2" sx={{ ml: 1 }}>
+                                                                        • <strong>{responder.name}</strong> ({responder.plate_number})
+                                                                    </Typography>
+                                                                ))}
+                                                            </Box>
+                                                        )}
                                                     </Alert>
                                                 ) : (
                                                     <Typography variant="body2" color="text.secondary">
@@ -550,10 +559,19 @@ function RiderDashboard({ rider }) {
                                                 <Alert severity="info" sx={{ mt: 1 }}>
                                                     <Typography variant="body2">
                                                         Your alert has been escalated to police. Help is on the way.
-                                                        {alert.response_count > 0 && (
-                                                            <> {alert.response_count} fellow rider{alert.response_count > 1 ? 's are' : ' is'} also responding.</>
-                                                        )}
                                                     </Typography>
+                                                    {alert.response_count > 0 && alert.responders && alert.responders.length > 0 && (
+                                                        <Box sx={{ mt: 1 }}>
+                                                            <Typography variant="body2" fontWeight="bold">
+                                                                {alert.response_count} fellow rider{alert.response_count > 1 ? 's are' : ' is'} also responding:
+                                                            </Typography>
+                                                            {alert.responders.map((responder, idx) => (
+                                                                <Typography key={idx} variant="body2" sx={{ ml: 1 }}>
+                                                                    • <strong>{responder.name}</strong> ({responder.plate_number})
+                                                                </Typography>
+                                                            ))}
+                                                        </Box>
+                                                    )}
                                                 </Alert>
                                             </>
                                         )}

@@ -5,7 +5,7 @@ Contains all database operations for riders, locations, and alerts.
 
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from models import Rider, Location, Alert, AlertStatus, ESCALATION_DELAY_SECONDS
+from models import Rider, Location, Alert, AlertStatus, ESCALATION_DELAY_SECONDS, AlertResponse
 from schemas import RiderCreate, LocationCreate, SOSCreate
 
 
@@ -135,17 +135,51 @@ def get_escalated_alerts(db: Session, limit: int = 100) -> list:
     ).order_by(Alert.timestamp.desc()).limit(limit).all()
 
 
-def respond_to_alert(db: Session, alert_id: int) -> Alert:
+def respond_to_alert(db: Session, alert_id: int, responder_id: int) -> Alert:
     """
     Record that a fellow rider has responded to an alert.
-    Increments the response_count.
+    Increments the response_count and stores responder info.
     """
     alert = db.query(Alert).filter(Alert.id == alert_id).first()
     if alert and alert.status == AlertStatus.RIDER_PENDING.value:
-        alert.response_count += 1
-        db.commit()
-        db.refresh(alert)
+        # Check if this rider already responded
+        existing_response = db.query(AlertResponse).filter(
+            AlertResponse.alert_id == alert_id,
+            AlertResponse.responder_id == responder_id
+        ).first()
+        
+        if not existing_response:
+            # Create response record
+            response = AlertResponse(
+                alert_id=alert_id,
+                responder_id=responder_id
+            )
+            db.add(response)
+            alert.response_count += 1
+            db.commit()
+            db.refresh(alert)
     return alert
+
+
+def get_alert_responders(db: Session, alert_id: int) -> list:
+    """
+    Get list of riders who responded to an alert.
+    """
+    responses = db.query(AlertResponse).filter(
+        AlertResponse.alert_id == alert_id
+    ).all()
+    
+    responders = []
+    for response in responses:
+        rider = db.query(Rider).filter(Rider.id == response.responder_id).first()
+        if rider:
+            responders.append({
+                "id": rider.id,
+                "name": rider.name,
+                "plate_number": rider.plate_number,
+                "responded_at": response.timestamp
+            })
+    return responders
 
 
 def escalate_alert(db: Session, alert_id: int) -> Alert:
