@@ -33,8 +33,33 @@ function RiderDashboard({ rider }) {
     const [message, setMessage] = useState({ type: '', text: '' })
     const [sosLoading, setSosLoading] = useState(false)
     const [respondingTo, setRespondingTo] = useState(null)
+    const [locationPermission, setLocationPermission] = useState('unknown')
     const intervalRef = useRef(null)
     const communityIntervalRef = useRef(null)
+
+    // Check location permission on mount
+    useEffect(() => {
+        const checkLocationPermission = async () => {
+            try {
+                // Check if Permissions API is available
+                if (navigator.permissions) {
+                    const result = await navigator.permissions.query({ name: 'geolocation' })
+                    setLocationPermission(result.state)
+                    console.log('Location permission status:', result.state)
+
+                    // Listen for permission changes
+                    result.onchange = () => {
+                        setLocationPermission(result.state)
+                        console.log('Location permission changed to:', result.state)
+                    }
+                }
+            } catch (err) {
+                console.log('Could not check location permission:', err)
+            }
+        }
+
+        checkLocationPermission()
+    }, [])
 
     // Fetch rider alerts on mount
     useEffect(() => {
@@ -42,7 +67,10 @@ function RiderDashboard({ rider }) {
         fetchCommunityAlerts()
 
         // Auto-refresh community alerts every 15 seconds (faster than police)
-        communityIntervalRef.current = setInterval(fetchCommunityAlerts, 15000)
+        communityIntervalRef.current = setInterval(() => {
+            fetchCommunityAlerts()
+            fetchAlerts() // Also refresh own alerts to see status updates
+        }, 15000)
 
         return () => {
             if (communityIntervalRef.current) {
@@ -128,10 +156,23 @@ function RiderDashboard({ rider }) {
                 return
             }
 
-            // Try high accuracy first, fallback to low accuracy
+            // Check if we're on HTTPS (required for geolocation on deployed sites)
+            const isSecure = window.location.protocol === 'https:' || window.location.hostname === 'localhost'
+            if (!isSecure) {
+                console.warn('Geolocation requires HTTPS on deployed sites')
+            }
+
+            // Try to get position with multiple attempts
+            let attempts = 0
+            const maxAttempts = 3
+
             const tryGetPosition = (highAccuracy) => {
+                attempts++
+                console.log(`Geolocation attempt ${attempts}/${maxAttempts}, highAccuracy: ${highAccuracy}`)
+
                 navigator.geolocation.getCurrentPosition(
                     (position) => {
+                        console.log('Geolocation success:', position.coords)
                         resolve({
                             latitude: position.coords.latitude,
                             longitude: position.coords.longitude,
@@ -139,22 +180,35 @@ function RiderDashboard({ rider }) {
                     },
                     (error) => {
                         console.error('Geolocation error:', error.code, error.message)
-                        // If high accuracy failed, try low accuracy
-                        if (highAccuracy && error.code === error.TIMEOUT) {
-                            console.log('Retrying with low accuracy...')
-                            tryGetPosition(false)
+
+                        // If permission denied, don't retry
+                        if (error.code === 1) {
+                            reject(error)
+                            return
+                        }
+
+                        // If timeout or unavailable, retry with different settings
+                        if (attempts < maxAttempts) {
+                            if (highAccuracy) {
+                                console.log('Retrying with low accuracy...')
+                                setTimeout(() => tryGetPosition(false), 500)
+                            } else {
+                                console.log('Retrying again...')
+                                setTimeout(() => tryGetPosition(false), 1000)
+                            }
                         } else {
                             reject(error)
                         }
                     },
                     {
                         enableHighAccuracy: highAccuracy,
-                        timeout: highAccuracy ? 10000 : 20000,
-                        maximumAge: 60000  // Accept cached position up to 1 minute old
+                        timeout: highAccuracy ? 15000 : 30000,
+                        maximumAge: 120000  // Accept cached position up to 2 minutes old
                     }
                 )
             }
 
+            // Start with high accuracy
             tryGetPosition(true)
         })
     }
@@ -263,9 +317,12 @@ function RiderDashboard({ rider }) {
             // More specific error messages
             let errorMsg = 'Failed to get your location. '
             if (err.code === 1) {
-                errorMsg += 'Location permission denied. Please allow location access in your browser settings.'
+                errorMsg += 'Location permission denied. Try these steps:\n'
+                errorMsg += '1. Click the lock/info icon in your browser address bar\n'
+                errorMsg += '2. Find "Location" and change it to "Allow"\n'
+                errorMsg += '3. Refresh the page and try again'
             } else if (err.code === 2) {
-                errorMsg += 'Location unavailable. Please check your device GPS settings.'
+                errorMsg += 'Location unavailable. Please check your device GPS/location settings are turned on.'
             } else if (err.code === 3) {
                 errorMsg += 'Location request timed out. Please try again.'
             } else {
@@ -469,7 +526,7 @@ function RiderDashboard({ rider }) {
                             <Typography variant="h6" gutterBottom>
                                 Your Alerts
                             </Typography>
-                            <AlertTable alerts={alerts} />
+                            <AlertTable alerts={alerts} showRiderName={true} showStatus={true} />
                         </CardContent>
                     </Card>
                 </Grid>
@@ -517,6 +574,13 @@ function RiderDashboard({ rider }) {
                             >
                                 {sosLoading ? 'Sending SOS...' : 'Send SOS'}
                             </Button>
+
+                            {locationPermission === 'denied' && (
+                                <Alert severity="warning" sx={{ mt: 2 }}>
+                                    Location access is blocked. Click the lock icon in your browser's address bar,
+                                    find "Location" and change it to "Allow", then refresh the page.
+                                </Alert>
+                            )}
 
                             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 2 }}>
                                 Press SOS in case of emergency. Fellow riders will be notified first to help you.
