@@ -41,6 +41,16 @@ export const getAlerts = async () => {
     return response.data
 }
 
+// Get alerts with optional filters
+export const getAlertsFiltered = async ({ status = null, escalatedOnly = false } = {}) => {
+    const params = new URLSearchParams()
+    if (status) params.append('status', status)
+    if (escalatedOnly) params.append('escalated_only', 'true')
+    const query = params.toString()
+    const response = await api.get(`/alerts${query ? `?${query}` : ''}`)
+    return response.data
+}
+
 // Get all riders
 export const getRiders = async () => {
     const response = await api.get('/riders')
@@ -96,6 +106,41 @@ export const resolveAlert = async (alertId, resolverId, notes = null) => {
 // Reverse geocode coordinates to place name
 export const getPlaceName = async (lat, lng) => {
     const response = await api.get(`/geocode?lat=${lat}&lng=${lng}`)
+    return response.data
+}
+
+// Analytics summary
+export const getAnalyticsSummary = async () => {
+    const response = await api.get('/analytics/summary')
+    return response.data
+}
+
+// Hotspot points for heat-style map
+export const getHotspots = async () => {
+    const response = await api.get('/analytics/hotspots')
+    return response.data
+}
+
+// Retention policy information
+export const getRetentionInfo = async () => {
+    const response = await api.get('/retention')
+    return response.data
+}
+
+// Manual retention cleanup
+export const runRetentionCleanup = async () => {
+    const response = await api.post('/retention/cleanup')
+    return response.data
+}
+
+// Chat feed
+export const getChatMessages = async () => {
+    const response = await api.get('/chat/messages')
+    return response.data
+}
+
+export const postChatMessage = async (payload) => {
+    const response = await api.post('/chat/messages', payload)
     return response.data
 }
 

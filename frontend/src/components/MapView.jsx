@@ -1,4 +1,4 @@
-import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet'
+import { MapContainer, TileLayer, Marker, Popup, useMap, Circle } from 'react-leaflet'
 import { useEffect } from 'react'
 import L from 'leaflet'
 
@@ -51,7 +51,7 @@ function RecenterMap({ center }) {
     return null
 }
 
-function MapView({ center, markers = [] }) {
+function MapView({ center, markers = [], hotspots = [] }) {
     // Default center (Kampala, Uganda)
     const defaultCenter = [0.3476, 32.5825]
     const mapCenter = center || defaultCenter
@@ -94,6 +94,27 @@ function MapView({ center, markers = [] }) {
                     )}
                 </Marker>
             ))}
+
+            {/* Render hotspot circles (heat-style view) */}
+            {hotspots.map((point, index) => {
+                const radius = Math.min(700, 120 + point.incident_count * 80)
+                return (
+                    <Circle
+                        key={`hotspot-${index}`}
+                        center={[point.latitude, point.longitude]}
+                        radius={radius}
+                        pathOptions={{
+                            color: '#b71c1c',
+                            fillColor: '#d32f2f',
+                            fillOpacity: 0.28,
+                        }}
+                    >
+                        <Popup>
+                            {point.location_name || 'Hotspot'}: {point.incident_count} incidents
+                        </Popup>
+                    </Circle>
+                )
+            })}
         </MapContainer>
     )
 }
