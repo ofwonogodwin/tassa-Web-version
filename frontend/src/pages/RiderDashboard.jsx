@@ -652,13 +652,13 @@ function RiderDashboard({ rider }) {
                             ) : (
                                 <Button
                                     fullWidth
-                                    variant="outlined"
-                                    color="primary"
+                                    variant="contained"
+                                    color="success"
                                     size="large"
                                     onClick={handleStopTracking}
                                     sx={{ mb: 2 }}
                                 >
-                                    Stop Tracking
+                                    Tracking Active - Stop
                                 </Button>
                             )}
 

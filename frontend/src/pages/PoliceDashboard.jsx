@@ -178,38 +178,38 @@ function PoliceDashboard() {
             </Box>
 
             {/* Stats */}
-            <Grid container spacing={3} sx={{ mb: 3 }}>
-                <Grid item xs={12} sm={4}>
-                    <Card>
-                        <CardContent>
-                            <Typography variant="h6" color="text.secondary">
+            <Grid container spacing={2} sx={{ mb: 3 }}>
+                <Grid item xs={12} sm={4} md={4}>
+                    <Card sx={{ borderRadius: 2 }}>
+                        <CardContent sx={{ py: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
                                 {viewMode === 'active' ? 'Active Alerts' : viewMode === 'escalated' ? 'Escalated Alerts' : viewMode === 'pending' ? 'Pending Alerts' : 'Alert History'}
                             </Typography>
-                            <Typography variant="h3">
+                            <Typography variant="h5" sx={{ mt: 0.5, fontWeight: 700 }}>
                                 {filteredAlerts.length}
                             </Typography>
                         </CardContent>
                     </Card>
                 </Grid>
-                <Grid item xs={12} sm={4}>
-                    <Card sx={{ borderLeft: 4, borderColor: 'error.main' }}>
-                        <CardContent>
-                            <Typography variant="h6" color="text.secondary">
+                <Grid item xs={12} sm={4} md={4}>
+                    <Card sx={{ borderRadius: 2, borderLeft: 4, borderColor: 'error.main' }}>
+                        <CardContent sx={{ py: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
                                 SOS Alerts
                             </Typography>
-                            <Typography variant="h3" color="error">
+                            <Typography variant="h5" color="error" sx={{ mt: 0.5, fontWeight: 700 }}>
                                 {sosCount}
                             </Typography>
                         </CardContent>
                     </Card>
                 </Grid>
-                <Grid item xs={12} sm={4}>
-                    <Card sx={{ borderLeft: 4, borderColor: 'warning.main' }}>
-                        <CardContent>
-                            <Typography variant="h6" color="text.secondary">
+                <Grid item xs={12} sm={4} md={4}>
+                    <Card sx={{ borderRadius: 2, borderLeft: 4, borderColor: 'warning.main' }}>
+                        <CardContent sx={{ py: 1.5 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase', letterSpacing: 0.6 }}>
                                 Anomaly Alerts
                             </Typography>
-                            <Typography variant="h3" color="warning.main">
+                            <Typography variant="h5" color="warning.main" sx={{ mt: 0.5, fontWeight: 700 }}>
                                 {anomalyCount}
                             </Typography>
                         </CardContent>
