@@ -11,11 +11,19 @@ import {
     ToggleButton,
     ToggleButtonGroup,
     Alert,
+    Tabs,
+    Tab,
+    Stack,
+    Divider,
+    TextField,
+    LinearProgress,
+    List,
+    ListItem,
+    ListItemText,
 } from '@mui/material'
 import RefreshIcon from '@mui/icons-material/Refresh'
-import LocalPoliceIcon from '@mui/icons-material/LocalPolice'
-import GroupIcon from '@mui/icons-material/Group'
-import { getAlerts } from '../api/api'
+import SendIcon from '@mui/icons-material/Send'
+import { getAlerts, getAnalyticsSummary, getHotspots, getRetentionInfo, runRetentionCleanup, getChatMessages, postChatMessage } from '../api/api'
 import MapView from '../components/MapView'
 import AlertTable from '../components/AlertTable'
 
@@ -23,7 +31,14 @@ function PoliceDashboard() {
     const [alerts, setAlerts] = useState([])
     const [loading, setLoading] = useState(true)
     const [lastUpdate, setLastUpdate] = useState(null)
-    const [viewMode, setViewMode] = useState('escalated') // 'escalated', 'all', 'pending'
+    const [viewMode, setViewMode] = useState('active') // 'active', 'escalated', 'pending', 'history'
+    const [activeTab, setActiveTab] = useState(0)
+    const [summary, setSummary] = useState(null)
+    const [hotspots, setHotspots] = useState([])
+    const [retention, setRetention] = useState(null)
+    const [chatMessages, setChatMessages] = useState([])
+    const [chatInput, setChatInput] = useState('')
+    const [busyCleanup, setBusyCleanup] = useState(false)
 
     // Fetch alerts on mount
     useEffect(() => {
@@ -37,8 +52,19 @@ function PoliceDashboard() {
     // Fetch all alerts
     const fetchAlerts = async () => {
         try {
-            const data = await getAlerts()
-            setAlerts(data)
+            const [alertsData, summaryData, hotspotData, retentionData, messagesData] = await Promise.all([
+                getAlerts(),
+                getAnalyticsSummary(),
+                getHotspots(),
+                getRetentionInfo(),
+                getChatMessages(),
+            ])
+
+            setAlerts(alertsData)
+            setSummary(summaryData)
+            setHotspots(hotspotData)
+            setRetention(retentionData)
+            setChatMessages(messagesData)
             setLastUpdate(new Date())
         } catch (err) {
             console.error('Failed to fetch alerts:', err)
@@ -47,11 +73,38 @@ function PoliceDashboard() {
         }
     }
 
-    // Filter alerts based on view mode
+    const handleCleanup = async () => {
+        setBusyCleanup(true)
+        try {
+            await runRetentionCleanup()
+            await fetchAlerts()
+        } finally {
+            setBusyCleanup(false)
+        }
+    }
+
+    const handleSendMessage = async () => {
+        if (!chatInput.trim()) return
+        try {
+            await postChatMessage({
+                sender_name: 'Police Desk',
+                sender_role: 'POLICE',
+                message: chatInput.trim(),
+            })
+            setChatInput('')
+            const messagesData = await getChatMessages()
+            setChatMessages(messagesData)
+        } catch (err) {
+            console.error('Failed to send chat message:', err)
+        }
+    }
+
+    // Active alerts exclude resolved alerts.
     const filteredAlerts = alerts.filter(alert => {
+        if (viewMode === 'active') return alert.status === 'ESCALATED' || alert.status === 'RIDER_PENDING'
         if (viewMode === 'escalated') return alert.status === 'ESCALATED'
         if (viewMode === 'pending') return alert.status === 'RIDER_PENDING'
-        return true // 'all'
+        return true // 'history' includes all
     })
 
     // Convert alerts to map markers
@@ -67,6 +120,7 @@ function PoliceDashboard() {
     const anomalyCount = filteredAlerts.filter((a) => a.alert_type === 'ANOMALY').length
     const escalatedCount = alerts.filter((a) => a.status === 'ESCALATED').length
     const pendingCount = alerts.filter((a) => a.status === 'RIDER_PENDING').length
+    const activeCount = escalatedCount + pendingCount
 
     return (
         <Container maxWidth="lg" sx={{ mt: 4, mb: 4 }}>
@@ -93,7 +147,7 @@ function PoliceDashboard() {
             </Box>
 
             {/* Community Policing Info */}
-            <Alert severity="info" sx={{ mb: 3 }} icon={<GroupIcon />}>
+            <Alert severity="info" sx={{ mb: 3 }}>
                 <strong>Community Policing Active:</strong> Alerts go to fellow riders first.
                 You see alerts after they've been escalated (no rider response within 3 minutes)
                 or manually escalated by a rider.
@@ -106,17 +160,19 @@ function PoliceDashboard() {
                     exclusive
                     onChange={(e, newMode) => newMode && setViewMode(newMode)}
                     aria-label="alert view mode"
+                    size="small"
                 >
+                    <ToggleButton value="active" aria-label="active alerts">
+                        Active ({activeCount})
+                    </ToggleButton>
                     <ToggleButton value="escalated" aria-label="escalated alerts">
-                        <LocalPoliceIcon sx={{ mr: 1 }} />
                         Escalated ({escalatedCount})
                     </ToggleButton>
                     <ToggleButton value="pending" aria-label="pending alerts">
-                        <GroupIcon sx={{ mr: 1 }} />
                         Rider Pending ({pendingCount})
                     </ToggleButton>
-                    <ToggleButton value="all" aria-label="all alerts">
-                        All ({alerts.length})
+                    <ToggleButton value="history" aria-label="alert history">
+                        History ({alerts.length})
                     </ToggleButton>
                 </ToggleButtonGroup>
             </Box>
@@ -127,7 +183,7 @@ function PoliceDashboard() {
                     <Card>
                         <CardContent>
                             <Typography variant="h6" color="text.secondary">
-                                {viewMode === 'escalated' ? 'Escalated Alerts' : viewMode === 'pending' ? 'Pending Alerts' : 'Total Alerts'}
+                                {viewMode === 'active' ? 'Active Alerts' : viewMode === 'escalated' ? 'Escalated Alerts' : viewMode === 'pending' ? 'Pending Alerts' : 'Alert History'}
                             </Typography>
                             <Typography variant="h3">
                                 {filteredAlerts.length}
@@ -161,38 +217,168 @@ function PoliceDashboard() {
                 </Grid>
             </Grid>
 
-            {/* Map and Table */}
-            <Grid container spacing={3}>
-                <Grid item xs={12}>
-                    <Card>
-                        <CardContent>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
-                                <Typography variant="h6">
-                                    Alert Locations
-                                </Typography>
-                                <Box sx={{ display: 'flex', gap: 1 }}>
-                                    <Chip label="SOS" color="error" size="small" />
-                                    <Chip label="ANOMALY" color="warning" size="small" />
-                                </Box>
-                            </Box>
-                            <Box sx={{ height: 400 }}>
-                                <MapView markers={markers} />
-                            </Box>
-                        </CardContent>
-                    </Card>
-                </Grid>
+            <Card sx={{ mb: 3 }}>
+                <CardContent>
+                    <Tabs value={activeTab} onChange={(e, value) => setActiveTab(value)}>
+                        <Tab label="Operations" />
+                        <Tab label="Analytics" />
+                        <Tab label="Coordination Chat" />
+                    </Tabs>
+                </CardContent>
+            </Card>
 
-                <Grid item xs={12}>
-                    <Card>
-                        <CardContent>
-                            <Typography variant="h6" gutterBottom>
-                                Alert History
-                            </Typography>
-                            <AlertTable alerts={filteredAlerts} showRiderName={true} showStatus={true} />
-                        </CardContent>
-                    </Card>
+            {activeTab === 0 && (
+                <Grid container spacing={3}>
+                    <Grid item xs={12}>
+                        <Card>
+                            <CardContent>
+                                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                                    <Typography variant="h6">
+                                        Alert Locations
+                                    </Typography>
+                                    <Box sx={{ display: 'flex', gap: 1 }}>
+                                        <Chip label="SOS" color="error" size="small" />
+                                        <Chip label="ANOMALY" color="warning" size="small" />
+                                    </Box>
+                                </Box>
+                                <Box sx={{ height: 400 }}>
+                                    <MapView markers={markers} />
+                                </Box>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+
+                    <Grid item xs={12}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Alert History
+                                </Typography>
+                                <AlertTable alerts={filteredAlerts} showRiderName={true} showStatus={true} />
+                            </CardContent>
+                        </Card>
+                    </Grid>
                 </Grid>
-            </Grid>
+            )}
+
+            {activeTab === 1 && (
+                <Grid container spacing={3}>
+                    <Grid item xs={12} md={6}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Incident Type Breakdown
+                                </Typography>
+                                <Stack spacing={2}>
+                                    <Box>
+                                        <Typography variant="body2">SOS ({summary?.sos_alerts || 0})</Typography>
+                                        <LinearProgress
+                                            variant="determinate"
+                                            value={summary?.total_alerts ? (summary.sos_alerts / summary.total_alerts) * 100 : 0}
+                                            color="error"
+                                        />
+                                    </Box>
+                                    <Box>
+                                        <Typography variant="body2">Anomaly ({summary?.anomaly_alerts || 0})</Typography>
+                                        <LinearProgress
+                                            variant="determinate"
+                                            value={summary?.total_alerts ? (summary.anomaly_alerts / summary.total_alerts) * 100 : 0}
+                                            color="warning"
+                                        />
+                                    </Box>
+                                    <Divider />
+                                    <Typography variant="body2">Escalated: {summary?.escalated_alerts || 0}</Typography>
+                                    <Typography variant="body2">Pending: {summary?.pending_alerts || 0}</Typography>
+                                    <Typography variant="body2">Resolved: {summary?.resolved_alerts || 0}</Typography>
+                                </Stack>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+
+                    <Grid item xs={12} md={6}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Log Retention
+                                </Typography>
+                                <Typography variant="body2" sx={{ mb: 1 }}>
+                                    Retention Window: {retention?.retention_days || 0} days
+                                </Typography>
+                                <Typography variant="body2" sx={{ mb: 2 }}>
+                                    Oldest Alert: {retention?.oldest_alert_at ? new Date(retention.oldest_alert_at).toLocaleString() : 'No alerts yet'}
+                                </Typography>
+                                <Button
+                                    variant="outlined"
+                                    color="warning"
+                                    onClick={handleCleanup}
+                                    disabled={busyCleanup}
+                                >
+                                    {busyCleanup ? 'Cleaning...' : 'Run Retention Cleanup'}
+                                </Button>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+
+                    <Grid item xs={12}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Hotspot Heat Map
+                                </Typography>
+                                <Box sx={{ height: 420, mb: 2 }}>
+                                    <MapView markers={[]} hotspots={hotspots} />
+                                </Box>
+                                <Alert severity="info">
+                                    Larger red circles indicate higher incident concentration.
+                                </Alert>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                </Grid>
+            )}
+
+            {activeTab === 2 && (
+                <Grid container spacing={3}>
+                    <Grid item xs={12}>
+                        <Card>
+                            <CardContent>
+                                <Typography variant="h6" gutterBottom>
+                                    Police-Rider Coordination Feed
+                                </Typography>
+                                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mb: 2 }}>
+                                    <TextField
+                                        fullWidth
+                                        label="Type an operational message"
+                                        value={chatInput}
+                                        onChange={(e) => setChatInput(e.target.value)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter') handleSendMessage()
+                                        }}
+                                    />
+                                    <Button variant="contained" startIcon={<SendIcon />} onClick={handleSendMessage}>
+                                        Send
+                                    </Button>
+                                </Stack>
+                                <List sx={{ maxHeight: 360, overflowY: 'auto' }}>
+                                    {chatMessages.map((msg) => (
+                                        <ListItem key={msg.id} divider>
+                                            <ListItemText
+                                                primary={`${msg.sender_name} (${msg.sender_role})`}
+                                                secondary={`${msg.message} • ${new Date(msg.timestamp).toLocaleString()}`}
+                                            />
+                                        </ListItem>
+                                    ))}
+                                    {chatMessages.length === 0 && (
+                                        <ListItem>
+                                            <ListItemText secondary="No messages yet." />
+                                        </ListItem>
+                                    )}
+                                </List>
+                            </CardContent>
+                        </Card>
+                    </Grid>
+                </Grid>
+            )}
         </Container>
     )
 }

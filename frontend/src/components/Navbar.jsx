@@ -17,7 +17,13 @@ function Navbar({ rider, onLogout }) {
     }
 
     return (
-        <AppBar position="static">
+        <AppBar
+            position="static"
+            sx={{
+                backgroundColor: '#1E4E8C',
+                borderBottom: '1px solid rgba(255,255,255,0.08)',
+            }}
+        >
             <Toolbar>
                 <Typography
                     variant="h6"
@@ -35,12 +41,14 @@ function Navbar({ rider, onLogout }) {
                                 color="inherit"
                                 component={Link}
                                 to="/rider"
+                                sx={{ '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' } }}
                             >
                                 Dashboard
                             </Button>
                             <Button
                                 color="inherit"
                                 onClick={handleLogout}
+                                sx={{ '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' } }}
                             >
                                 Logout
                             </Button>
@@ -51,6 +59,7 @@ function Navbar({ rider, onLogout }) {
                                 color="inherit"
                                 component={Link}
                                 to="/login"
+                                sx={{ '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' } }}
                             >
                                 Login
                             </Button>
@@ -58,6 +67,7 @@ function Navbar({ rider, onLogout }) {
                                 color="inherit"
                                 component={Link}
                                 to="/register"
+                                sx={{ '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' } }}
                             >
                                 Register
                             </Button>
@@ -65,6 +75,7 @@ function Navbar({ rider, onLogout }) {
                                 color="inherit"
                                 component={Link}
                                 to="/police"
+                                sx={{ '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' } }}
                             >
                                 Police
                             </Button>
