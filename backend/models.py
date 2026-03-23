@@ -96,3 +96,15 @@ class AlertResponse(Base):
     # Relationships
     alert = relationship("Alert", back_populates="responses")
     responder = relationship("Rider")
+
+
+class Message(Base):
+    """Simple message feed for police coordination and updates."""
+    __tablename__ = "messages"
+
+    id = Column(Integer, primary_key=True, index=True)
+    sender_name = Column(String, nullable=False)
+    sender_role = Column(String, nullable=False)  # POLICE or RIDER
+    message = Column(String, nullable=False)
+    alert_id = Column(Integer, ForeignKey("alerts.id"), nullable=True)
+    timestamp = Column(DateTime, default=datetime.utcnow)

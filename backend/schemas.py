@@ -116,6 +116,51 @@ class AlertResolveRequest(BaseModel):
     resolution_notes: Optional[str] = None
 
 
+class AnalyticsSummary(BaseModel):
+    """High-level analytics data for police dashboard."""
+    total_alerts: int
+    sos_alerts: int
+    anomaly_alerts: int
+    escalated_alerts: int
+    pending_alerts: int
+    resolved_alerts: int
+
+
+class HotspotPoint(BaseModel):
+    """Aggregated hotspot point with alert density."""
+    latitude: float
+    longitude: float
+    incident_count: int
+    location_name: Optional[str] = None
+
+
+class RetentionInfo(BaseModel):
+    """Retention policy and current data horizon."""
+    retention_days: int
+    oldest_alert_at: Optional[datetime] = None
+
+
+class ChatMessageCreate(BaseModel):
+    """Create a chat message."""
+    sender_name: str
+    sender_role: str
+    message: str
+    alert_id: Optional[int] = None
+
+
+class ChatMessageResponse(BaseModel):
+    """Chat message response."""
+    id: int
+    sender_name: str
+    sender_role: str
+    message: str
+    alert_id: Optional[int] = None
+    timestamp: datetime
+
+    class Config:
+        from_attributes = True
+
+
 # Login Response
 class LoginResponse(BaseModel):
     """Schema for login response."""

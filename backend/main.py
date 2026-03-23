@@ -17,6 +17,9 @@ import schemas
 from anomaly import check_for_anomaly
 from geocoding import get_place_name
 
+# Data retention policy for police analytics window
+RETENTION_DAYS = 180
+
 # Create database tables
 Base.metadata.create_all(bind=engine)
 
@@ -444,6 +447,74 @@ def reverse_geocode(lat: float, lng: float):
     """
     place_name = get_place_name(lat, lng)
     return {"place_name": place_name, "latitude": lat, "longitude": lng}
+
+
+@app.get("/analytics/summary", response_model=schemas.AnalyticsSummary)
+def get_analytics_summary(db: Session = Depends(get_db)):
+    """Return summary analytics used by police charts."""
+    return crud.get_alert_analytics_summary(db)
+
+
+@app.get("/analytics/hotspots", response_model=list[schemas.HotspotPoint])
+def get_hotspots(
+    grid_size: float = Query(0.01, description="Grid size for hotspot aggregation"),
+    limit: int = Query(20, description="Max hotspot points"),
+    db: Session = Depends(get_db)
+):
+    """Return hotspot points for map heat visualization."""
+    hotspots = crud.get_alert_hotspots(db, grid_size=grid_size, limit=limit)
+
+    # Attach readable place names to top hotspots
+    result = []
+    for point in hotspots:
+        place_name = get_place_name(point["latitude"], point["longitude"])
+        result.append(
+            schemas.HotspotPoint(
+                latitude=point["latitude"],
+                longitude=point["longitude"],
+                incident_count=point["incident_count"],
+                location_name=place_name or None,
+            )
+        )
+    return result
+
+
+@app.get("/retention", response_model=schemas.RetentionInfo)
+def get_retention_info(db: Session = Depends(get_db)):
+    """Return current retention policy and oldest available alert."""
+    return schemas.RetentionInfo(
+        retention_days=RETENTION_DAYS,
+        oldest_alert_at=crud.get_oldest_alert_timestamp(db),
+    )
+
+
+@app.post("/retention/cleanup")
+def run_retention_cleanup(db: Session = Depends(get_db)):
+    """Delete alerts older than retention policy window."""
+    deleted = crud.cleanup_old_alerts(db, retention_days=RETENTION_DAYS)
+    return {"deleted_alerts": deleted, "retention_days": RETENTION_DAYS}
+
+
+@app.get("/chat/messages", response_model=list[schemas.ChatMessageResponse])
+def get_chat_messages(limit: int = Query(100, description="Maximum messages"), db: Session = Depends(get_db)):
+    """Get latest coordination chat messages."""
+    return crud.get_messages(db, limit=limit)
+
+
+@app.post("/chat/messages", response_model=schemas.ChatMessageResponse)
+def create_chat_message(payload: schemas.ChatMessageCreate, db: Session = Depends(get_db)):
+    """Post a new coordination chat message."""
+    role = payload.sender_role.strip().upper()
+    if role not in ["POLICE", "RIDER"]:
+        raise HTTPException(status_code=400, detail="sender_role must be POLICE or RIDER")
+
+    return crud.create_message(
+        db,
+        sender_name=payload.sender_name,
+        sender_role=role,
+        message=payload.message,
+        alert_id=payload.alert_id,
+    )
 
 
 if __name__ == "__main__":

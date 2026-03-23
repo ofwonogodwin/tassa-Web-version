@@ -5,7 +5,7 @@ Contains all database operations for riders, locations, and alerts.
 
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
-from models import Rider, Location, Alert, AlertStatus, ESCALATION_DELAY_SECONDS, AlertResponse
+from models import Rider, Location, Alert, AlertStatus, ESCALATION_DELAY_SECONDS, AlertResponse, Message
 from schemas import RiderCreate, LocationCreate, SOSCreate
 
 
@@ -292,3 +292,74 @@ def get_time_until_escalation(alert: Alert) -> int:
     remaining = ESCALATION_DELAY_SECONDS - elapsed
     
     return max(0, int(remaining))
+
+
+# Retention and Analytics Operations
+def get_oldest_alert_timestamp(db: Session):
+    """Return timestamp of the oldest alert in storage."""
+    oldest = db.query(Alert).order_by(Alert.timestamp.asc()).first()
+    return oldest.timestamp if oldest else None
+
+
+def cleanup_old_alerts(db: Session, retention_days: int) -> int:
+    """Delete alerts older than retention_days and return deleted count."""
+    cutoff = datetime.utcnow() - timedelta(days=retention_days)
+    deleted_count = db.query(Alert).filter(Alert.timestamp < cutoff).delete(synchronize_session=False)
+    db.commit()
+    return deleted_count
+
+
+def get_alert_analytics_summary(db: Session) -> dict:
+    """Get alert analytics summary for police dashboard."""
+    alerts = db.query(Alert).all()
+    return {
+        "total_alerts": len(alerts),
+        "sos_alerts": len([a for a in alerts if a.alert_type == "SOS"]),
+        "anomaly_alerts": len([a for a in alerts if a.alert_type == "ANOMALY"]),
+        "escalated_alerts": len([a for a in alerts if a.status == AlertStatus.ESCALATED.value]),
+        "pending_alerts": len([a for a in alerts if a.status == AlertStatus.RIDER_PENDING.value]),
+        "resolved_alerts": len([a for a in alerts if a.status == AlertStatus.RESOLVED.value]),
+    }
+
+
+def get_alert_hotspots(db: Session, grid_size: float = 0.01, limit: int = 20) -> list:
+    """Aggregate alerts by rounded lat/lng cell to produce hotspot points."""
+    alerts = db.query(Alert).all()
+    buckets = {}
+
+    for alert in alerts:
+        cell_lat = round(alert.latitude / grid_size) * grid_size
+        cell_lng = round(alert.longitude / grid_size) * grid_size
+        key = (round(cell_lat, 4), round(cell_lng, 4))
+
+        if key not in buckets:
+            buckets[key] = {
+                "latitude": key[0],
+                "longitude": key[1],
+                "incident_count": 0,
+            }
+        buckets[key]["incident_count"] += 1
+
+    hotspot_list = list(buckets.values())
+    hotspot_list.sort(key=lambda x: x["incident_count"], reverse=True)
+    return hotspot_list[:limit]
+
+
+# Chat Operations
+def create_message(db: Session, sender_name: str, sender_role: str, message: str, alert_id: int = None) -> Message:
+    """Create a chat message for coordination feed."""
+    db_msg = Message(
+        sender_name=sender_name,
+        sender_role=sender_role,
+        message=message,
+        alert_id=alert_id,
+    )
+    db.add(db_msg)
+    db.commit()
+    db.refresh(db_msg)
+    return db_msg
+
+
+def get_messages(db: Session, limit: int = 100) -> list:
+    """Fetch latest coordination messages."""
+    return db.query(Message).order_by(Message.timestamp.desc()).limit(limit).all()

@@ -8,9 +8,7 @@ import {
     Paper,
     Chip,
     Typography,
-    Box,
 } from '@mui/material'
-import HandshakeIcon from '@mui/icons-material/Handshake'
 
 function AlertTable({ alerts, showRiderName = false, showStatus = false }) {
     // Format timestamp for display
@@ -81,23 +79,9 @@ function AlertTable({ alerts, showRiderName = false, showStatus = false }) {
                             </TableCell>
                             {showStatus && (
                                 <TableCell>
-                                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                                        <Chip
-                                            label={getStatusText(alert.status)}
-                                            color={getStatusColor(alert.status)}
-                                            size="small"
-                                            variant="outlined"
-                                        />
-                                        {alert.response_count > 0 && (
-                                            <Chip
-                                                icon={<HandshakeIcon />}
-                                                label={alert.response_count}
-                                                color="success"
-                                                size="small"
-                                                variant="outlined"
-                                            />
-                                        )}
-                                    </Box>
+                                    <Typography variant="caption" color={`${getStatusColor(alert.status)}.main`}>
+                                        {getStatusText(alert.status)}
+                                    </Typography>
                                 </TableCell>
                             )}
                             <TableCell>
