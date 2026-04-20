@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import {
     Container,
     Grid,
@@ -20,6 +20,7 @@ import GroupIcon from '@mui/icons-material/Group'
 import LocalPoliceIcon from '@mui/icons-material/LocalPolice'
 import CheckCircleIcon from '@mui/icons-material/CheckCircle'
 import HandshakeIcon from '@mui/icons-material/Handshake'
+import AccessTimeIcon from '@mui/icons-material/AccessTime'
 import { sendLocation, sendSOS, getRiderAlerts, getCommunityAlerts, respondToAlert, escalateAlert, resolveAlert, getPlaceName } from '../api/api'
 import MapView from '../components/MapView'
 import AlertTable from '../components/AlertTable'
@@ -34,8 +35,42 @@ function RiderDashboard({ rider }) {
     const [sosLoading, setSosLoading] = useState(false)
     const [respondingTo, setRespondingTo] = useState(null)
     const [locationPermission, setLocationPermission] = useState('unknown')
+    const [dismissedActiveAlertIds, setDismissedActiveAlertIds] = useState([])
+    const [removingActiveAlertIds, setRemovingActiveAlertIds] = useState([])
     const intervalRef = useRef(null)
     const communityIntervalRef = useRef(null)
+
+    const activeAlerts = useMemo(() => {
+        return alerts
+            .filter((a) => a.status !== 'RESOLVED' && !dismissedActiveAlertIds.includes(a.id))
+            .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+            .slice(0, 5)
+    }, [alerts, dismissedActiveAlertIds])
+
+    const getAlertSummary = (alert) => {
+        if (alert.status === 'RIDER_PENDING') {
+            if (alert.response_count > 0) {
+                return `${alert.response_count} rider${alert.response_count > 1 ? 's' : ''} responding`
+            }
+            if (alert.time_until_escalation > 0) {
+                const mins = Math.floor(alert.time_until_escalation / 60)
+                const secs = String(alert.time_until_escalation % 60).padStart(2, '0')
+                return `Waiting for riders • Escalates in ${mins}:${secs}`
+            }
+            return 'Waiting for nearby riders'
+        }
+
+        if (alert.status === 'ESCALATED') {
+            return 'Escalated to police'
+        }
+
+        return 'Active alert'
+    }
+
+    const getAlertAccentColor = (alert) => {
+        if (alert.status === 'ESCALATED') return 'error.main'
+        return alert.alert_type === 'SOS' ? 'warning.main' : 'info.main'
+    }
 
     // Check location permission on mount
     useEffect(() => {
@@ -138,17 +173,35 @@ function RiderDashboard({ rider }) {
     }
 
     // Handle resolving an alert
-    const handleResolveAlert = async (alertId) => {
+    const handleResolveAlert = async (alertId, options = {}) => {
+        const { silent = false } = options
         try {
             await resolveAlert(alertId, rider.id)
-            setMessage({ type: 'success', text: 'Alert marked as resolved!' })
+            if (!silent) {
+                setMessage({ type: 'success', text: 'Alert marked as resolved!' })
+            }
             fetchCommunityAlerts()
             fetchAlerts()
+            return true
         } catch (err) {
             console.error('Failed to resolve alert:', err)
             const errorMsg = err.response?.data?.detail || 'Failed to resolve alert. The alert may have already been resolved.'
             setMessage({ type: 'error', text: errorMsg })
+            return false
         }
+    }
+
+    const handleDismissActiveAlert = async (alertId) => {
+        const ok = await handleResolveAlert(alertId, { silent: true })
+        if (!ok) return
+
+        setRemovingActiveAlertIds((prev) => [...new Set([...prev, alertId])])
+        setMessage({ type: 'success', text: 'Alert dismissed.' })
+
+        setTimeout(() => {
+            setDismissedActiveAlertIds((prev) => [...new Set([...prev, alertId])])
+            setRemovingActiveAlertIds((prev) => prev.filter((id) => id !== alertId))
+        }, 220)
     }
 
     // Get current position using browser geolocation
@@ -490,98 +543,96 @@ function RiderDashboard({ rider }) {
                 </Card>
             )}
 
-            {/* Your Active Alert Status - Full width like Community Alerts */}
-            {alerts.filter(a => a.status !== 'RESOLVED').length > 0 && (
-                <Card sx={{ mb: 3, border: 2, borderColor: 'info.main' }}>
+            {/* Your Active Alert Status - Compact UI */}
+            {activeAlerts.length > 0 && (
+                <Card sx={{ mb: 3, borderRadius: 2, border: 1, borderColor: 'divider', boxShadow: '0 4px 14px rgba(15, 23, 42, 0.08)' }}>
                     <CardContent>
-                        <Typography variant="h6" gutterBottom color="info.main">
+                        <Typography variant="h6" gutterBottom color="info.main" sx={{ mb: 1.5 }}>
                             Your Active Alert Status
                         </Typography>
-                        {alerts.filter(a => a.status !== 'RESOLVED').map((alert) => (
-                            <Card key={alert.id} sx={{ mb: 2, bgcolor: alert.status === 'ESCALATED' ? 'error.light' : 'warning.light' }}>
-                                <CardContent>
-                                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
-                                        <Chip
-                                            label={alert.alert_type}
-                                            color={alert.alert_type === 'SOS' ? 'error' : 'warning'}
-                                            size="small"
-                                        />
-                                        <Typography variant="caption" color="text.secondary">
-                                            {new Date(alert.timestamp).toLocaleString()}
-                                        </Typography>
-                                    </Box>
-
-                                    <Typography variant="body2" gutterBottom>
-                                        {alert.location_name || `${alert.latitude.toFixed(4)}, ${alert.longitude.toFixed(4)}`}
-                                    </Typography>
-
-                                    {/* Status Display */}
-                                    <Box sx={{ mt: 2, p: 2, bgcolor: 'background.paper', borderRadius: 1 }}>
-                                        {alert.status === 'RIDER_PENDING' && (
-                                            <>
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                                    <GroupIcon color="warning" />
-                                                    <Typography variant="body1" fontWeight="bold" color="warning.dark">
-                                                        Fellow Riders Notified
-                                                    </Typography>
-                                                </Box>
-                                                {alert.response_count > 0 ? (
-                                                    <Alert severity="success" sx={{ mt: 1 }}>
-                                                        <Typography variant="body2" fontWeight="bold" gutterBottom>
-                                                            {alert.response_count} rider{alert.response_count > 1 ? 's' : ''} responding to help you!
-                                                        </Typography>
-                                                        {alert.responders && alert.responders.length > 0 && (
-                                                            <Box sx={{ mt: 1 }}>
-                                                                {alert.responders.map((responder, idx) => (
-                                                                    <Typography key={idx} variant="body2" sx={{ ml: 1 }}>
-                                                                        • <strong>{responder.name}</strong> ({responder.plate_number})
-                                                                    </Typography>
-                                                                ))}
-                                                            </Box>
-                                                        )}
-                                                    </Alert>
+                        <Box sx={{ maxHeight: 330, overflowY: 'auto', pr: 0.5 }}>
+                            {activeAlerts.map((alert) => (
+                                <Card
+                                    key={alert.id}
+                                    sx={{
+                                        mb: 1,
+                                        position: 'relative',
+                                        borderRadius: 2,
+                                        border: 1,
+                                        borderColor: 'divider',
+                                        boxShadow: '0 2px 10px rgba(15, 23, 42, 0.06)',
+                                        transition: 'opacity 220ms ease, transform 220ms ease',
+                                        opacity: removingActiveAlertIds.includes(alert.id) ? 0 : 1,
+                                        transform: removingActiveAlertIds.includes(alert.id) ? 'translateY(-4px)' : 'translateY(0)'
+                                    }}
+                                >
+                                    <Box
+                                        sx={{
+                                            position: 'absolute',
+                                            left: 0,
+                                            top: 0,
+                                            bottom: 0,
+                                            width: 4,
+                                            bgcolor: getAlertAccentColor(alert)
+                                        }}
+                                    />
+                                    <CardContent sx={{ py: 1.25, px: 1.5, '&:last-child': { pb: 1.25 } }}>
+                                        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                                                {alert.status === 'ESCALATED' ? (
+                                                    <LocalPoliceIcon sx={{ fontSize: 18, color: 'error.main' }} />
                                                 ) : (
-                                                    <Typography variant="body2" color="text.secondary">
-                                                        Waiting for nearby riders to respond...
-                                                        {alert.time_until_escalation > 0 && (
-                                                            <> Auto-escalates to police in {Math.floor(alert.time_until_escalation / 60)}:{String(alert.time_until_escalation % 60).padStart(2, '0')}</>
-                                                        )}
-                                                    </Typography>
+                                                    <WarningIcon sx={{ fontSize: 18, color: 'warning.main' }} />
                                                 )}
-                                            </>
-                                        )}
+                                                <Chip
+                                                    label={alert.alert_type}
+                                                    color={alert.alert_type === 'SOS' ? 'error' : 'warning'}
+                                                    size="small"
+                                                    sx={{ height: 22, '& .MuiChip-label': { px: 1, fontSize: '0.72rem' } }}
+                                                />
+                                            </Box>
 
-                                        {alert.status === 'ESCALATED' && (
-                                            <>
-                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-                                                    <LocalPoliceIcon color="error" />
-                                                    <Typography variant="body1" fontWeight="bold" color="error.dark">
-                                                        Police Have Been Notified!
+                                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                                    <AccessTimeIcon sx={{ fontSize: 14, color: 'text.secondary' }} />
+                                                    <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.72rem' }}>
+                                                        {new Date(alert.timestamp).toLocaleString()}
                                                     </Typography>
                                                 </Box>
-                                                <Alert severity="info" sx={{ mt: 1 }}>
-                                                    <Typography variant="body2">
-                                                        Your alert has been escalated to police. Help is on the way.
-                                                    </Typography>
-                                                    {alert.response_count > 0 && alert.responders && alert.responders.length > 0 && (
-                                                        <Box sx={{ mt: 1 }}>
-                                                            <Typography variant="body2" fontWeight="bold">
-                                                                {alert.response_count} fellow rider{alert.response_count > 1 ? 's are' : ' is'} also responding:
-                                                            </Typography>
-                                                            {alert.responders.map((responder, idx) => (
-                                                                <Typography key={idx} variant="body2" sx={{ ml: 1 }}>
-                                                                    • <strong>{responder.name}</strong> ({responder.plate_number})
-                                                                </Typography>
-                                                            ))}
-                                                        </Box>
-                                                    )}
-                                                </Alert>
-                                            </>
-                                        )}
-                                    </Box>
-                                </CardContent>
-                            </Card>
-                        ))}
+                                                <Button
+                                                    size="small"
+                                                    variant={alert.status === 'ESCALATED' ? 'outlined' : 'contained'}
+                                                    color={alert.status === 'ESCALATED' ? 'inherit' : 'success'}
+                                                    startIcon={<CheckCircleIcon sx={{ fontSize: 14 }} />}
+                                                    sx={{ minWidth: 'auto', px: 1.1, py: 0.2, fontSize: '0.72rem' }}
+                                                    onClick={() => handleDismissActiveAlert(alert.id)}
+                                                >
+                                                    {alert.status === 'ESCALATED' ? 'Dismiss' : 'Resolved'}
+                                                </Button>
+                                            </Box>
+                                        </Box>
+
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 1 }}>
+                                            <LocationOnIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                                            <Typography variant="body2" sx={{ fontSize: '0.82rem', lineHeight: 1.35 }}>
+                                                {alert.location_name || `${alert.latitude.toFixed(4)}, ${alert.longitude.toFixed(4)}`}
+                                            </Typography>
+                                        </Box>
+
+                                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mt: 0.6 }}>
+                                            {alert.status === 'ESCALATED' ? (
+                                                <LocalPoliceIcon sx={{ fontSize: 15, color: 'error.main' }} />
+                                            ) : (
+                                                <GroupIcon sx={{ fontSize: 15, color: 'warning.main' }} />
+                                            )}
+                                            <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.78rem' }}>
+                                                {getAlertSummary(alert)}
+                                            </Typography>
+                                        </Box>
+                                    </CardContent>
+                                </Card>
+                            ))}
+                        </Box>
                     </CardContent>
                 </Card>
             )}
