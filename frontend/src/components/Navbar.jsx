@@ -7,7 +7,7 @@ import {
     Box,
 } from '@mui/material'
 
-function Navbar({ rider, onLogout }) {
+function Navbar({ auth, onLogout }) {
     const navigate = useNavigate()
 
     // Handle logout
@@ -35,12 +35,12 @@ function Navbar({ rider, onLogout }) {
                 </Typography>
 
                 <Box sx={{ display: 'flex', gap: 1 }}>
-                    {rider ? (
+                    {auth?.role ? (
                         <>
                             <Button
                                 color="inherit"
                                 component={Link}
-                                to="/rider"
+                                to={auth.role === 'POLICE' ? '/police' : '/rider'}
                                 sx={{ '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' } }}
                             >
                                 Dashboard
@@ -74,10 +74,10 @@ function Navbar({ rider, onLogout }) {
                             <Button
                                 color="inherit"
                                 component={Link}
-                                to="/police"
+                                to="/police-login"
                                 sx={{ '&:hover': { backgroundColor: 'rgba(255,255,255,0.12)' } }}
                             >
-                                Police
+                                Police Login
                             </Button>
                         </>
                     )}

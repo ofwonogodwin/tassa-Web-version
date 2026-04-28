@@ -6,6 +6,7 @@ Separates API data structures from database models.
 from pydantic import BaseModel
 from datetime import datetime
 from typing import Optional, List
+from typing import Literal
 
 
 # Rider Schemas
@@ -20,6 +21,12 @@ class RiderCreate(BaseModel):
 class RiderLogin(BaseModel):
     """Schema for rider login."""
     name: str
+    password: str
+
+
+class PoliceLogin(BaseModel):
+    """Schema for police login."""
+    username: str
     password: str
 
 
@@ -142,8 +149,6 @@ class RetentionInfo(BaseModel):
 
 class ChatMessageCreate(BaseModel):
     """Create a chat message."""
-    sender_name: str
-    sender_role: str
     message: str
     alert_id: Optional[int] = None
 
@@ -167,3 +172,16 @@ class LoginResponse(BaseModel):
     success: bool
     message: str
     rider: Optional[RiderResponse] = None
+    access_token: Optional[str] = None
+    token_type: str = "bearer"
+    role: Optional[str] = None
+
+
+class IoTTelemetryCreate(BaseModel):
+    """Schema for IoT telemetry ingestion."""
+    rider_id: int
+    latitude: float
+    longitude: float
+    event: Literal["location", "sos"] = "location"
+    device_id: Optional[str] = None
+    timestamp: Optional[datetime] = None

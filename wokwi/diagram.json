@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "author": "TAASA ESP32 GPS SOS",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "board-esp32-devkit-c-v4", "id": "esp", "top": 10, "left": -10, "attrs": {} },
+    { "type": "wokwi-gps-module", "id": "gps1", "top": -95, "left": 290, "attrs": {} },
+    { "type": "wokwi-led", "id": "led1", "top": -30, "left": -230, "attrs": { "color": "red", "label": "SOS LED" } },
+    { "type": "wokwi-resistor", "id": "r1", "top": 20, "left": -220, "attrs": { "value": "220" } },
+    { "type": "wokwi-pushbutton", "id": "btn1", "top": 170, "left": -230, "attrs": { "color": "green", "label": "SOS", "xray": "1" } }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+
+    [ "esp:3V3", "gps1:VCC", "red", [ "v0" ] ],
+    [ "esp:GND.1", "gps1:GND", "black", [ "v0" ] ],
+    [ "gps1:TX", "esp:16", "green", [ "v0" ] ],
+    [ "gps1:RX", "esp:17", "blue", [ "v0" ] ],
+
+    [ "esp:2", "led1:A", "red", [ "v0" ] ],
+    [ "led1:C", "r1:1", "black", [ "v0" ] ],
+    [ "r1:2", "esp:GND.2", "black", [ "v0" ] ],
+
+    [ "esp:4", "btn1:1.l", "green", [ "v0" ] ],
+    [ "btn1:2.r", "esp:GND.3", "black", [ "v0" ] ]
+  ],
+  "dependencies": {}
+}

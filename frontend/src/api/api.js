@@ -11,6 +11,14 @@ const api = axios.create({
     },
 })
 
+api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('taasa_token')
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`
+    }
+    return config
+})
+
 // Register new rider
 export const registerRider = async (data) => {
     const response = await api.post('/register', data)
@@ -20,6 +28,12 @@ export const registerRider = async (data) => {
 // Login rider
 export const loginRider = async (data) => {
     const response = await api.post('/login', data)
+    return response.data
+}
+
+// Police login
+export const loginPolice = async (data) => {
+    const response = await api.post('/police/login', data)
     return response.data
 }
 
