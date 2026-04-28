@@ -10,18 +10,17 @@ import {
     Box,
     Alert,
 } from '@mui/material'
-import { loginRider } from '../api/api'
+import { loginPolice } from '../api/api'
 
-function Login({ onLogin }) {
+function PoliceLogin({ onLogin }) {
     const navigate = useNavigate()
     const [formData, setFormData] = useState({
-        name: '',
+        username: '',
         password: '',
     })
     const [error, setError] = useState('')
     const [loading, setLoading] = useState(false)
 
-    // Handle input change
     const handleChange = (e) => {
         setFormData({
             ...formData,
@@ -29,27 +28,25 @@ function Login({ onLogin }) {
         })
     }
 
-    // Handle form submit
     const handleSubmit = async (e) => {
         e.preventDefault()
         setError('')
         setLoading(true)
 
         try {
-            const response = await loginRider(formData)
-
-            if (response.success && response.access_token && response.rider) {
+            const response = await loginPolice(formData)
+            if (response.success && response.access_token) {
                 onLogin({
                     role: response.role,
                     token: response.access_token,
-                    rider: response.rider,
+                    rider: null,
                 })
-                navigate('/rider')
+                navigate('/police')
             } else {
-                setError(response.message)
+                setError(response.message || 'Police login failed')
             }
         } catch (err) {
-            setError('Login failed. Please try again.')
+            setError('Police login failed. Please try again.')
         } finally {
             setLoading(false)
         }
@@ -60,7 +57,7 @@ function Login({ onLogin }) {
             <Card>
                 <CardContent>
                     <Typography variant="h4" component="h1" gutterBottom align="center">
-                        Rider Login
+                        Police Login
                     </Typography>
 
                     {error && (
@@ -72,9 +69,9 @@ function Login({ onLogin }) {
                     <Box component="form" onSubmit={handleSubmit}>
                         <TextField
                             fullWidth
-                            label="Name"
-                            name="name"
-                            value={formData.name}
+                            label="Username"
+                            name="username"
+                            value={formData.username}
                             onChange={handleChange}
                             margin="normal"
                             required
@@ -97,17 +94,13 @@ function Login({ onLogin }) {
                             sx={{ mt: 3, mb: 2 }}
                             disabled={loading}
                         >
-                            {loading ? 'Logging in...' : 'Login'}
+                            {loading ? 'Logging in...' : 'Login as Police'}
                         </Button>
                     </Box>
 
                     <Box sx={{ textAlign: 'center', mt: 2 }}>
                         <Typography variant="body2">
-                            Don't have an account?{' '}
-                            <Link to="/register">Register here</Link>
-                        </Typography>
-                        <Typography variant="body2" sx={{ mt: 1 }}>
-                            <Link to="/police-login">Police Login</Link>
+                            Rider account? <Link to="/login">Rider Login</Link>
                         </Typography>
                     </Box>
                 </CardContent>
@@ -116,4 +109,4 @@ function Login({ onLogin }) {
     )
 }
 
-export default Login
+export default PoliceLogin

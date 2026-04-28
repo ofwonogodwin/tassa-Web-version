@@ -1,20 +1,23 @@
 """
 Database configuration for TAASA system.
-Uses SQLite with SQLAlchemy ORM.
+Defaults to SQLite locally and supports PostgreSQL via DATABASE_URL.
 """
 
+import os
 from sqlalchemy import create_engine
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import declarative_base, sessionmaker
 
-# SQLite database file location
-SQLALCHEMY_DATABASE_URL = "sqlite:///./taasa.db"
+# Use PostgreSQL in production by setting DATABASE_URL.
+# Falls back to local SQLite for local development.
+database_url = os.getenv("DATABASE_URL", "sqlite:///./taasa.db")
+if database_url.startswith("postgres://"):
+    database_url = database_url.replace("postgres://", "postgresql+psycopg2://", 1)
 
-# Create engine with SQLite-specific settings
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False}  # Required for SQLite
-)
+engine_kwargs = {}
+if database_url.startswith("sqlite"):
+    engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+engine = create_engine(database_url, **engine_kwargs)
 
 # Session factory for database operations
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)

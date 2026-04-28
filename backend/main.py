@@ -5,7 +5,8 @@ Main FastAPI application with all API endpoints.
 Community Policing: Alerts go to fellow riders first, then police after delay.
 """
 
-from fastapi import FastAPI, Depends, HTTPException, Query
+import os
+from fastapi import FastAPI, Depends, HTTPException, Query, Header
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from typing import Optional
@@ -16,9 +17,17 @@ import crud
 import schemas
 from anomaly import check_for_anomaly
 from geocoding import get_place_name
+from security import (
+    authenticate_police,
+    create_access_token,
+    ensure_rider_access,
+    require_role,
+    UserContext,
+)
 
 # Data retention policy for police analytics window
 RETENTION_DAYS = 180
+IOT_DEVICE_TOKEN = os.getenv("TAASA_IOT_DEVICE_TOKEN", "change-me-iot-token")
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -79,19 +88,55 @@ def login_rider(credentials: schemas.RiderLogin, db: Session = Depends(get_db)):
         return schemas.LoginResponse(
             success=False,
             message="Invalid name or password",
-            rider=None
+            rider=None,
+            access_token=None,
+            role=None,
         )
+
+    token = create_access_token(
+        role="RIDER",
+        rider_id=rider.id,
+        rider_name=rider.name,
+    )
     
     return schemas.LoginResponse(
         success=True,
         message="Login successful",
-        rider=schemas.RiderResponse.model_validate(rider)
+        rider=schemas.RiderResponse.model_validate(rider),
+        access_token=token,
+        role="RIDER",
+    )
+
+
+@app.post("/police/login", response_model=schemas.LoginResponse)
+def login_police(credentials: schemas.PoliceLogin):
+    """Authenticate police operator and issue a POLICE token."""
+    if not authenticate_police(credentials.username, credentials.password):
+        return schemas.LoginResponse(
+            success=False,
+            message="Invalid police credentials",
+            rider=None,
+            access_token=None,
+            role=None,
+        )
+
+    token = create_access_token(role="POLICE")
+    return schemas.LoginResponse(
+        success=True,
+        message="Police login successful",
+        rider=None,
+        access_token=token,
+        role="POLICE",
     )
 
 
 # Location tracking endpoint
 @app.post("/location", response_model=schemas.LocationResponse)
-def create_location(location: schemas.LocationCreate, db: Session = Depends(get_db)):
+def create_location(
+    location: schemas.LocationCreate,
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER")),
+):
     """
     Record rider's current location.
     Also checks for anomaly conditions and creates alert if needed.
@@ -100,6 +145,7 @@ def create_location(location: schemas.LocationCreate, db: Session = Depends(get_
     rider = crud.get_rider_by_id(db, location.rider_id)
     if not rider:
         raise HTTPException(status_code=404, detail="Rider not found")
+    ensure_rider_access(current_user, location.rider_id)
     
     # Save location
     db_location = crud.create_location(db, location)
@@ -112,7 +158,11 @@ def create_location(location: schemas.LocationCreate, db: Session = Depends(get_
 
 # SOS alert endpoint
 @app.post("/sos", response_model=schemas.AlertResponse)
-def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
+def create_sos(
+    sos: schemas.SOSCreate,
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER")),
+):
     """
     Create an SOS emergency alert.
     
@@ -123,6 +173,7 @@ def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
     rider = crud.get_rider_by_id(db, sos.rider_id)
     if not rider:
         raise HTTPException(status_code=404, detail="Rider not found")
+    ensure_rider_access(current_user, sos.rider_id)
     
     alert = crud.create_sos_alert(db, sos)
     place_name = get_place_name(alert.latitude, alert.longitude)
@@ -147,12 +198,64 @@ def create_sos(sos: schemas.SOSCreate, db: Session = Depends(get_db)):
     )
 
 
+@app.post("/iot/ingest")
+def ingest_iot_telemetry(
+    payload: schemas.IoTTelemetryCreate,
+    x_device_token: str = Header(default=""),
+    db: Session = Depends(get_db),
+):
+    """
+    Ingest telemetry from IoT devices (e.g., Wokwi ESP32 simulation).
+    """
+    if x_device_token != IOT_DEVICE_TOKEN:
+        raise HTTPException(status_code=401, detail="Invalid device token")
+
+    rider = crud.get_rider_by_id(db, payload.rider_id)
+    if not rider:
+        raise HTTPException(status_code=404, detail="Rider not found")
+
+    if payload.event == "sos":
+        alert = crud.create_sos_alert(
+            db,
+            schemas.SOSCreate(
+                rider_id=payload.rider_id,
+                latitude=payload.latitude,
+                longitude=payload.longitude,
+            ),
+        )
+        return {
+            "success": True,
+            "event": "sos",
+            "alert_id": alert.id,
+            "rider_id": payload.rider_id,
+            "device_id": payload.device_id,
+        }
+
+    location = crud.create_location(
+        db,
+        schemas.LocationCreate(
+            rider_id=payload.rider_id,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+        ),
+    )
+    check_for_anomaly(db, payload.rider_id, payload.latitude, payload.longitude)
+    return {
+        "success": True,
+        "event": "location",
+        "location_id": location.id,
+        "rider_id": payload.rider_id,
+        "device_id": payload.device_id,
+    }
+
+
 # Get all alerts endpoint (Police Dashboard)
 @app.get("/alerts", response_model=list[schemas.AlertResponse])
 def get_alerts(
     status: Optional[str] = Query(None, description="Filter by status: RIDER_PENDING, ESCALATED, RESOLVED"),
     escalated_only: bool = Query(False, description="Only show escalated alerts"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("POLICE")),
 ):
     """
     Get all alerts for police dashboard.
@@ -203,7 +306,10 @@ def get_alerts(
 
 # Get all riders endpoint
 @app.get("/riders", response_model=list[schemas.RiderResponse])
-def get_riders(db: Session = Depends(get_db)):
+def get_riders(
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("POLICE")),
+):
     """
     Get all registered riders.
     """
@@ -212,26 +318,36 @@ def get_riders(db: Session = Depends(get_db)):
 
 # Get rider locations endpoint
 @app.get("/rider/{rider_id}/locations", response_model=list[schemas.LocationResponse])
-def get_rider_locations(rider_id: int, db: Session = Depends(get_db)):
+def get_rider_locations(
+    rider_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER", "POLICE")),
+):
     """
     Get recent locations for a specific rider.
     """
     rider = crud.get_rider_by_id(db, rider_id)
     if not rider:
         raise HTTPException(status_code=404, detail="Rider not found")
+    ensure_rider_access(current_user, rider_id)
     
     return crud.get_rider_locations(db, rider_id)
 
 
 # Get rider alerts endpoint
 @app.get("/rider/{rider_id}/alerts", response_model=list[schemas.AlertResponse])
-def get_rider_alerts(rider_id: int, db: Session = Depends(get_db)):
+def get_rider_alerts(
+    rider_id: int,
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER", "POLICE")),
+):
     """
     Get alerts for a specific rider.
     """
     rider = crud.get_rider_by_id(db, rider_id)
     if not rider:
         raise HTTPException(status_code=404, detail="Rider not found")
+    ensure_rider_access(current_user, rider_id)
     
     alerts = crud.get_rider_alerts(db, rider_id)
     
@@ -266,7 +382,8 @@ def get_rider_alerts(rider_id: int, db: Session = Depends(get_db)):
 @app.get("/community-alerts", response_model=list[schemas.AlertResponse])
 def get_community_alerts(
     rider_id: int = Query(..., description="Current rider's ID (to exclude their own alerts)"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER")),
 ):
     """
     Get alerts from fellow riders that need community response.
@@ -274,6 +391,8 @@ def get_community_alerts(
     Community Policing: Fellow riders are the first point of contact.
     Returns only RIDER_PENDING alerts from other riders.
     """
+    ensure_rider_access(current_user, rider_id)
+
     # First, auto-escalate any old pending alerts
     crud.auto_escalate_old_alerts(db)
     
@@ -311,7 +430,8 @@ def get_community_alerts(
 def respond_to_alert(
     alert_id: int, 
     request: schemas.AlertRespondRequest, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER")),
 ):
     """
     Record that a fellow rider is responding to an alert.
@@ -319,6 +439,8 @@ def respond_to_alert(
     Community Policing: When riders respond, it shows community engagement
     and may prevent auto-escalation to police.
     """
+    ensure_rider_access(current_user, request.responder_id)
+
     # Verify responder exists
     responder = crud.get_rider_by_id(db, request.responder_id)
     if not responder:
@@ -355,7 +477,8 @@ def respond_to_alert(
 def escalate_alert(
     alert_id: int, 
     request: schemas.AlertEscalateRequest, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER")),
 ):
     """
     Manually escalate an alert to police.
@@ -363,6 +486,8 @@ def escalate_alert(
     Community Policing: Riders can escalate if they determine 
     the situation requires police involvement.
     """
+    ensure_rider_access(current_user, request.escalator_id)
+
     # Verify escalator exists
     escalator = crud.get_rider_by_id(db, request.escalator_id)
     if not escalator:
@@ -399,7 +524,8 @@ def escalate_alert(
 def resolve_alert(
     alert_id: int, 
     request: schemas.AlertResolveRequest, 
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER", "POLICE")),
 ):
     """
     Mark an alert as resolved.
@@ -407,6 +533,9 @@ def resolve_alert(
     Community Policing: Can be resolved by fellow riders 
     after they've helped the person in need.
     """
+    if current_user.role == "RIDER":
+        ensure_rider_access(current_user, request.resolver_id)
+
     # Verify resolver exists
     resolver = crud.get_rider_by_id(db, request.resolver_id)
     if not resolver:
@@ -450,7 +579,10 @@ def reverse_geocode(lat: float, lng: float):
 
 
 @app.get("/analytics/summary", response_model=schemas.AnalyticsSummary)
-def get_analytics_summary(db: Session = Depends(get_db)):
+def get_analytics_summary(
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("POLICE")),
+):
     """Return summary analytics used by police charts."""
     return crud.get_alert_analytics_summary(db)
 
@@ -459,7 +591,8 @@ def get_analytics_summary(db: Session = Depends(get_db)):
 def get_hotspots(
     grid_size: float = Query(0.01, description="Grid size for hotspot aggregation"),
     limit: int = Query(20, description="Max hotspot points"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("POLICE")),
 ):
     """Return hotspot points for map heat visualization."""
     hotspots = crud.get_alert_hotspots(db, grid_size=grid_size, limit=limit)
@@ -480,7 +613,10 @@ def get_hotspots(
 
 
 @app.get("/retention", response_model=schemas.RetentionInfo)
-def get_retention_info(db: Session = Depends(get_db)):
+def get_retention_info(
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("POLICE")),
+):
     """Return current retention policy and oldest available alert."""
     return schemas.RetentionInfo(
         retention_days=RETENTION_DAYS,
@@ -489,29 +625,36 @@ def get_retention_info(db: Session = Depends(get_db)):
 
 
 @app.post("/retention/cleanup")
-def run_retention_cleanup(db: Session = Depends(get_db)):
+def run_retention_cleanup(
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("POLICE")),
+):
     """Delete alerts older than retention policy window."""
     deleted = crud.cleanup_old_alerts(db, retention_days=RETENTION_DAYS)
     return {"deleted_alerts": deleted, "retention_days": RETENTION_DAYS}
 
 
 @app.get("/chat/messages", response_model=list[schemas.ChatMessageResponse])
-def get_chat_messages(limit: int = Query(100, description="Maximum messages"), db: Session = Depends(get_db)):
+def get_chat_messages(
+    limit: int = Query(100, description="Maximum messages"),
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER", "POLICE")),
+):
     """Get latest coordination chat messages."""
     return crud.get_messages(db, limit=limit)
 
 
 @app.post("/chat/messages", response_model=schemas.ChatMessageResponse)
-def create_chat_message(payload: schemas.ChatMessageCreate, db: Session = Depends(get_db)):
+def create_chat_message(
+    payload: schemas.ChatMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: UserContext = Depends(require_role("RIDER", "POLICE")),
+):
     """Post a new coordination chat message."""
-    role = payload.sender_role.strip().upper()
-    if role not in ["POLICE", "RIDER"]:
-        raise HTTPException(status_code=400, detail="sender_role must be POLICE or RIDER")
-
     return crud.create_message(
         db,
-        sender_name=payload.sender_name,
-        sender_role=role,
+        sender_name=current_user.rider_name if current_user.role == "RIDER" else "Police Desk",
+        sender_role=current_user.role,
         message=payload.message,
         alert_id=payload.alert_id,
     )

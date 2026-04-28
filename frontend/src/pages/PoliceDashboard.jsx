@@ -87,8 +87,6 @@ function PoliceDashboard() {
         if (!chatInput.trim()) return
         try {
             await postChatMessage({
-                sender_name: 'Police Desk',
-                sender_role: 'POLICE',
                 message: chatInput.trim(),
             })
             setChatInput('')
