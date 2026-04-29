@@ -6,12 +6,19 @@ Community Policing: Alerts go to fellow riders first, then police after delay.
 """
 
 import os
-from fastapi import FastAPI, Depends, HTTPException, Query, Header
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.orm import Session
+import time
+import logging
+from threading import Lock
 from typing import Optional
 
-from database import engine, get_db, Base
+from fastapi import FastAPI, Depends, HTTPException, Query, Header, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from database import engine, get_db, Base, get_database_info
 from models import Rider, Alert, AlertStatus
 import crud
 import schemas
@@ -25,9 +32,23 @@ from security import (
     UserContext,
 )
 
+# Structured logging for production visibility (Render/Uvicorn stdout)
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+)
+logger = logging.getLogger("taasa.api")
+
 # Data retention policy for police analytics window
 RETENTION_DAYS = 180
 IOT_DEVICE_TOKEN = os.getenv("TAASA_IOT_DEVICE_TOKEN", "change-me-iot-token")
+
+# /location stability controls
+LOCATION_MIN_INTERVAL_SECONDS = float(os.getenv("TAASA_LOCATION_MIN_INTERVAL_SECONDS", "7"))
+LOCATION_RATE_LIMIT_MAX_TRACKED = int(os.getenv("TAASA_LOCATION_RATE_LIMIT_MAX_TRACKED", "10000"))
+_location_last_seen: dict[int, float] = {}
+_location_rate_lock = Lock()
 
 # Create database tables
 Base.metadata.create_all(bind=engine)
@@ -49,10 +70,81 @@ app.add_middleware(
 )
 
 
+def _enforce_location_rate_limit(rider_id: int) -> float:
+    """
+    Simple in-memory per-rider limiter for /location.
+    Returns retry-after seconds when throttled, else 0.
+    """
+    now = time.monotonic()
+    retry_after = 0.0
+    with _location_rate_lock:
+        last_seen = _location_last_seen.get(rider_id)
+        if last_seen is not None:
+            elapsed = now - last_seen
+            if elapsed < LOCATION_MIN_INTERVAL_SECONDS:
+                retry_after = LOCATION_MIN_INTERVAL_SECONDS - elapsed
+            else:
+                _location_last_seen[rider_id] = now
+        else:
+            _location_last_seen[rider_id] = now
+
+        # Prevent unbounded memory growth for long-running processes.
+        if len(_location_last_seen) > LOCATION_RATE_LIMIT_MAX_TRACKED:
+            cutoff = now - (LOCATION_MIN_INTERVAL_SECONDS * 5)
+            stale_ids = [rid for rid, ts in _location_last_seen.items() if ts < cutoff]
+            for rid in stale_ids:
+                _location_last_seen.pop(rid, None)
+
+    return retry_after
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    logger.warning(
+        "HTTP error %s on %s %s: %s",
+        exc.status_code,
+        request.method,
+        request.url.path,
+        exc.detail,
+    )
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    # Catch-all safety net so unexpected errors are logged consistently.
+    logger.exception("Unhandled error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.exception_handler(RequestValidationError)
+async def request_validation_exception_handler(request: Request, exc: RequestValidationError):
+    logger.warning("Validation error on %s %s", request.method, request.url.path)
+    return JSONResponse(status_code=422, content={"detail": exc.errors()})
+
+
 @app.get("/")
 def root():
     """Health check endpoint."""
-    return {"message": "TAASA API is running"}
+    return {"status": "ok"}
+
+
+@app.get("/health/database")
+def database_health(db: Session = Depends(get_db)):
+    """
+    Database connectivity and persistence diagnostics.
+    Helps confirm that production is using external Postgres (e.g., Supabase).
+    """
+    try:
+        db.execute(text("SELECT 1"))
+        rider_count = db.query(Rider).count()
+        return {
+            "status": "ok",
+            "rider_count": rider_count,
+            **get_database_info(),
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Database connection failed: {exc}") from exc
 
 
 # Registration endpoint
@@ -141,19 +233,49 @@ def create_location(
     Record rider's current location.
     Also checks for anomaly conditions and creates alert if needed.
     """
-    # Verify rider exists
-    rider = crud.get_rider_by_id(db, location.rider_id)
-    if not rider:
-        raise HTTPException(status_code=404, detail="Rider not found")
-    ensure_rider_access(current_user, location.rider_id)
-    
-    # Save location
-    db_location = crud.create_location(db, location)
-    
-    # Check for anomaly (stationary at night)
-    check_for_anomaly(db, location.rider_id, location.latitude, location.longitude)
-    
-    return db_location
+    rider_id = current_user.rider_id or location.rider_id
+    retry_after = _enforce_location_rate_limit(rider_id)
+    if retry_after > 0:
+        rounded_retry = max(1, int(retry_after))
+        logger.warning(
+            "Rate limit hit for rider_id=%s on /location (retry_after=%ss)",
+            rider_id,
+            rounded_retry,
+        )
+        return JSONResponse(
+            status_code=429,
+            content={
+                "success": False,
+                "message": "Too many location updates. Please slow down.",
+                "retry_after_seconds": rounded_retry,
+            },
+        )
+
+    try:
+        # Verify rider exists
+        rider = crud.get_rider_by_id(db, location.rider_id)
+        if not rider:
+            raise HTTPException(status_code=404, detail="Rider not found")
+        ensure_rider_access(current_user, location.rider_id)
+
+        # Save location
+        db_location = crud.create_location(db, location)
+
+        # Check for anomaly (stationary at night)
+        check_for_anomaly(db, location.rider_id, location.latitude, location.longitude)
+
+        logger.info(
+            "Location ingested for rider_id=%s (lat=%.6f, lon=%.6f)",
+            location.rider_id,
+            location.latitude,
+            location.longitude,
+        )
+        return db_location
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("Location ingestion failed for rider_id=%s", location.rider_id)
+        raise HTTPException(status_code=500, detail="Failed to process location update") from exc
 
 
 # SOS alert endpoint
@@ -662,4 +784,7 @@ def create_chat_message(
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    port = int(os.getenv("PORT", "8000"))
+    workers = int(os.getenv("WEB_CONCURRENCY", "1"))
+    logger.info("Starting TAASA API on 0.0.0.0:%s with workers=%s", port, workers)
+    uvicorn.run("main:app", host="0.0.0.0", port=port, workers=workers)
