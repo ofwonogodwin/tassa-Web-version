@@ -39,10 +39,9 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("taasa.api")
-tassa-iot-device-token123
 # Data retention policy for police analytics window
 RETENTION_DAYS = 180
-IOT_DEVICE_TOKEN = os.getenv("IOT_DEVICE_TOKEN", "tassa-iot-device-token123")
+IOT_DEVICE_TOKEN = os.getenv("TAASA_IOT_DEVICE_TOKEN", "tassa-iot-device-token123")
 
 # /location stability controls
 LOCATION_MIN_INTERVAL_SECONDS = float(os.getenv("TAASA_LOCATION_MIN_INTERVAL_SECONDS", "7"))
