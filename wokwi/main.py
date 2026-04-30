@@ -2,7 +2,6 @@ import machine
 import network
 import time
 import urequests
-import ujson
 
 
 # -----------------------------
@@ -11,23 +10,25 @@ import ujson
 WIFI_SSID = "Wokwi-GUEST"
 WIFI_PASSWORD = ""
 
+
 # Render deployment base URL
 BASE_URL = "https://tassa-web-version.onrender.com"
 
-REGISTER_ENDPOINT = BASE_URL + "/register"
-RIDERS_ENDPOINT = BASE_URL + "/riders"
-LOCATION_ENDPOINT = BASE_URL + "/location"
-SOS_ENDPOINT = BASE_URL + "/sos"
+LOGIN_ENDPOINT = BASE_URL + "/login"
+IOT_INGEST_ENDPOINT = BASE_URL + "/iot/ingest"
 
-RIDER_ID = 1
-RIDER_NAME = "wokwi-rider-01"
-RIDER_PLATE = "WKW 001"
-RIDER_AREA = "Kampala"
-RIDER_PASSWORD = "1234"
+# Use an EXISTING rider account from your web system (do not auto-register here).
+RIDER_LOGIN_NAME = "Godwin Ofwono"
+RIDER_LOGIN_PASSWORD = "#Ofwono23##"
+RIDER_ID = None
+DEVICE_ID = "esp32-wokwi-01"
+# Must match TAASA_IOT_DEVICE_TOKEN in your backend environment variables.
+IOT_DEVICE_TOKEN = "tassa-iot-device-token123"
 POST_INTERVAL_MS = 5000
 SOS_DEBOUNCE_MS = 350
 SOS_RETRY_COUNT = 3
 SOS_RETRY_DELAY_MS = 600
+LED_ON_AFTER_SOS_MS = 120000  # 2 minutes
 
 # If no GPS fix yet, use a Kampala default so SOS still reaches dashboard.
 DEFAULT_LAT = 0.3476
@@ -54,6 +55,7 @@ latest_lat = None
 latest_lon = None
 last_sos_ms = 0
 sos_pending = False
+led_on_until_ms = 0
 
 
 def connect_wifi():
@@ -128,9 +130,9 @@ def current_coords():
     return latest_lat, latest_lon
 
 
-def do_post(url, payload):
+def do_post(url, payload, headers=None):
     try:
-        response = urequests.post(url, json=payload)
+        response = urequests.post(url, json=payload, headers=headers)
         code = response.status_code
         body = response.text
         response.close()
@@ -141,69 +143,63 @@ def do_post(url, payload):
         return False
 
 
-def do_get(url):
-    try:
-        response = urequests.get(url)
-        code = response.status_code
-        body = response.text
-        response.close()
-        print("GET", url, code, body)
-        return code, body
-    except Exception as exc:
-        print("GET failed:", url, exc)
-        return 0, ""
-
-
-def ensure_rider():
+def login_existing_rider():
     global RIDER_ID
 
-    register_payload = {
-        "name": RIDER_NAME,
-        "plate_number": RIDER_PLATE,
-        "area": RIDER_AREA,
-        "password": RIDER_PASSWORD,
-    }
+    if RIDER_LOGIN_NAME.startswith("set-") or RIDER_LOGIN_PASSWORD.startswith("set-"):
+        print("Set RIDER_LOGIN_NAME and RIDER_LOGIN_PASSWORD to an existing rider account.")
+        return False
+
+    login_payload = {"name": RIDER_LOGIN_NAME, "password": RIDER_LOGIN_PASSWORD}
     try:
-        response = urequests.post(REGISTER_ENDPOINT, json=register_payload)
+        response = urequests.post(LOGIN_ENDPOINT, json=login_payload)
         code = response.status_code
         body_text = response.text
-        rider_data = response.json() if code == 200 else None
+        login_data = response.json() if code == 200 else None
         response.close()
-        print("REGISTER", code, body_text)
-        if rider_data and "id" in rider_data:
-            RIDER_ID = int(rider_data["id"])
-            print("Using rider_id:", RIDER_ID)
+        print("LOGIN", code, body_text)
+
+        if login_data and login_data.get("success") and login_data.get("rider"):
+            RIDER_ID = int(login_data["rider"]["id"])
+            print("Connected to rider account. rider_id:", RIDER_ID)
             return True
     except Exception as exc:
-        print("REGISTER failed:", exc)
+        print("LOGIN failed:", exc)
 
-    # Rider might already exist. Try lookup by name.
-    code, body = do_get(RIDERS_ENDPOINT)
-    if code == 200:
-        riders = ujson.loads(body)
-        for rider in riders:
-            if rider.get("name") == RIDER_NAME:
-                RIDER_ID = int(rider.get("id", RIDER_ID))
-                print("Found existing rider_id:", RIDER_ID)
-                return True
-
-    print("Could not auto-resolve rider. Using configured RIDER_ID:", RIDER_ID)
+    print("Could not login existing rider account.")
     return False
 
 
-def post_location_and_status(lat, lon, sos_pressed):
+def post_iot_event(lat, lon, event_name):
+    if RIDER_ID is None:
+        print("Skipping IoT post: rider is not connected.")
+        return False
+
+    return do_post(
+        IOT_INGEST_ENDPOINT,
+        {
+            "rider_id": RIDER_ID,
+            "latitude": lat,
+            "longitude": lon,
+            "event": event_name,
+            "device_id": DEVICE_ID,
+        },
+        headers={"x-device-token": IOT_DEVICE_TOKEN},
+    )
+
+
+def extend_led_window():
+    global led_on_until_ms
+    now = time.ticks_ms()
+    led_on_until_ms = time.ticks_add(now, LED_ON_AFTER_SOS_MS)
     led.on()
-    try:
-        if sos_pressed:
-            return do_post(
-                SOS_ENDPOINT,
-                {"rider_id": RIDER_ID, "latitude": lat, "longitude": lon},
-            )
-        return do_post(
-            LOCATION_ENDPOINT,
-            {"rider_id": RIDER_ID, "latitude": lat, "longitude": lon},
-        )
-    finally:
+
+
+def refresh_led_state():
+    # Keep LED on for the configured SOS window without blocking loop/network.
+    if time.ticks_diff(led_on_until_ms, time.ticks_ms()) > 0:
+        led.on()
+    else:
         led.off()
 
 
@@ -214,6 +210,7 @@ def trigger_sos_request():
         return
     last_sos_ms = now
     sos_pending = True
+    extend_led_window()
 
 
 def button_irq_handler(pin):
@@ -228,7 +225,7 @@ def setup_button_interrupt():
 
 def send_sos_with_retry(lat, lon):
     for attempt in range(1, SOS_RETRY_COUNT + 1):
-        ok = post_location_and_status(lat, lon, True)
+        ok = post_iot_event(lat, lon, "sos")
         if ok:
             print("SOS sent successfully (attempt %d)" % attempt)
             return True
@@ -240,7 +237,8 @@ def send_sos_with_retry(lat, lon):
 def main():
     global sos_pending
     wlan = connect_wifi()
-    ensure_rider()
+    while not login_existing_rider():
+        time.sleep_ms(3000)
     setup_button_interrupt()
     last_periodic_ms = time.ticks_ms()
     prev_pressed = False
@@ -250,6 +248,7 @@ def main():
             wlan = connect_wifi()
 
         read_gps()
+        refresh_led_state()
 
         # Backup polling path (in addition to IRQ), for maximum reliability in simulation.
         pressed = (button.value() == 0)
@@ -267,7 +266,7 @@ def main():
         periodic_due = time.ticks_diff(time.ticks_ms(), last_periodic_ms) >= POST_INTERVAL_MS
         if periodic_due:
             lat, lon = current_coords()
-            post_location_and_status(lat, lon, False)
+            post_iot_event(lat, lon, "location")
             last_periodic_ms = time.ticks_ms()
 
         time.sleep_ms(100)
